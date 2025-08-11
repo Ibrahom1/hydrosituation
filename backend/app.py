@@ -17,9 +17,13 @@ app = Flask(__name__)
 # Configure CORS to allow all origins for development
 CORS(app, origins="*", allow_headers=["Content-Type", "Authorization"], methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 
-# FFD API Configuration
-FFD_TOKEN = "PM_PORT_API_1a2b9c6d5e4f"
+# FFD API Configuration (token loaded from environment or .env)
+from dotenv import load_dotenv
+load_dotenv()
+FFD_TOKEN = os.environ.get('FFD_API_KEY', '').strip()
 FFD_API_URL = "https://ffd.pmd.gov.pk/api/pm-dashboard"
+if not FFD_TOKEN:
+    logging.warning("FFD_API_KEY not set in environment; remote fetch endpoints will fail until provided.")
 
 """River configuration and variants.
 We include common spelling variants to improve matching and classification.
