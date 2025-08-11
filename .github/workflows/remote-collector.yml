@@ -21,8 +21,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install requests
-      - name: Run collector
-        run: python remote_collector.py
+      - name: Run collector (resilient)
+        env:
+          FFD_API_KEY: ${{ secrets.FFD_API_KEY }}
+        run: |
+          python remote_collector.py || echo "Collector script signaled non-zero; continuing (graceful)."
       - name: Commit latest.json
         run: |
           if [ -f latest.json ]; then
