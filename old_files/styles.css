@@ -1,0 +1,841 @@
+* {
+    box-sizing: border-box;
+}
+
+html, body {
+    max-width: 100vw;
+    overflow-x: hidden;
+}
+
+body {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    height: 100vh;
+    max-height: 100vh;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    overflow: hidden;
+    padding: 0;
+    margin: 0;
+}
+
+/* Universal single-page layout for all screen sizes */
+@media (min-width: 768px) {
+    .container-fluid {
+        max-height: 100vh;
+        padding: 10px !important;
+        overflow: hidden;
+    }
+    
+    .header-container {
+        margin-bottom: 8px !important;
+    }
+    
+    .header-container h1 {
+        font-size: 1.5rem !important;
+        margin-bottom: 5px !important;
+    }
+    
+    .card {
+        height: calc(50vh - 40px) !important;
+    }
+    
+    .card-header {
+        padding: 6px 10px !important;
+    }
+    
+    .card-header h3 {
+        font-size: 1rem !important;
+        margin: 0 !important;
+    }
+    
+    .card-body {
+        padding: 6px !important;
+        overflow-y: auto;
+        height: calc(100% - 45px);
+    }
+    
+    .table {
+        font-size: 0.75rem !important;
+        margin-bottom: 0 !important;
+    }
+    
+    .table th, .table td {
+        padding: 3px 2px !important;
+        vertical-align: middle !important;
+    }
+    
+    .form-control {
+        font-size: 0.7rem !important;
+        padding: 2px 4px !important;
+        min-height: 20px !important;
+    }
+    
+    textarea.form-control {
+        min-height: 20px !important;
+        resize: none !important;
+    }
+    
+    .badge {
+        font-size: 0.65rem !important;
+        padding: 1px 4px !important;
+    }
+    
+    .row.mt-2 {
+        margin-top: 8px !important;
+    }
+    
+    .g-4 {
+        --bs-gutter-x: 8px;
+        --bs-gutter-y: 8px;
+    }
+    
+    /* Map projection specific sizing */
+    #map-container {
+        height: 100% !important;
+    }
+    
+    .map-projection-card .card-body, .map-body {
+        height: calc(100% - 45px) !important;
+    }
+    
+    /* Table column width controls */
+    .table {
+        table-layout: fixed;
+        width: 100%;
+    }
+    
+    .table th, .table td {
+        word-wrap: break-word;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
+    /* Pakistan Dams table columns */
+    .table th:nth-child(1), .table td:nth-child(1) { width: 15%; }
+    .table th:nth-child(2), .table td:nth-child(2) { width: 18%; }
+    .table th:nth-child(3), .table td:nth-child(3) { width: 14%; }
+    .table th:nth-child(4), .table td:nth-child(4) { width: 14%; }
+    .table th:nth-child(5), .table td:nth-child(5) { width: 14%; }
+    .table th:nth-child(6), .table td:nth-child(6) { width: 10%; }
+}
+
+/* Laptop screen optimizations (1366x768 and similar) */
+@media (min-width: 768px) and (max-height: 800px) {
+    .container-fluid {
+        padding: 5px !important;
+    }
+    
+    .header-container {
+        margin-bottom: 5px !important;
+    }
+    
+    .header-container h1 {
+        font-size: 1.3rem !important;
+        margin-bottom: 3px !important;
+    }
+    
+    .card {
+        height: calc(50vh - 30px) !important;
+    }
+    
+    .card-header {
+        padding: 4px 8px !important;
+    }
+    
+    .card-header h3 {
+        font-size: 0.9rem !important;
+    }
+    
+    .card-body {
+        padding: 4px !important;
+        height: calc(100% - 35px);
+    }
+    
+    .table {
+        font-size: 0.7rem !important;
+    }
+    
+    .table th, .table td {
+        padding: 2px 1px !important;
+    }
+    
+    .form-control {
+        font-size: 0.65rem !important;
+        padding: 1px 3px !important;
+        min-height: 18px !important;
+    }
+    
+    .badge {
+        font-size: 0.6rem !important;
+        padding: 1px 3px !important;
+    }
+    
+    .row.mt-2 {
+        margin-top: 5px !important;
+    }
+    
+    .g-4 {
+        --bs-gutter-x: 5px;
+        --bs-gutter-y: 5px;
+    }
+}
+
+/* Small laptop and tablet optimization */
+@media (min-width: 768px) and (max-height: 700px) {
+    .header-container h1 {
+        font-size: 1.1rem !important;
+        margin-bottom: 2px !important;
+    }
+    
+    .card {
+        height: calc(50vh - 25px) !important;
+    }
+    
+    .card-header {
+        padding: 3px 6px !important;
+    }
+    
+    .card-header h3 {
+        font-size: 0.8rem !important;
+    }
+    
+    .card-body {
+        padding: 3px !important;
+        height: calc(100% - 30px);
+    }
+    
+    .table {
+        font-size: 0.65rem !important;
+    }
+    
+    .form-control {
+        font-size: 0.6rem !important;
+        min-height: 16px !important;
+    }
+    
+    .badge {
+        font-size: 0.55rem !important;
+    }
+}
+
+/* Desktop and large screen optimizations (1920x1080+) */
+@media (min-width: 1200px) {
+    .container-fluid {
+        max-height: 100vh;
+        padding: 15px !important;
+    }
+    
+    .header-container {
+        margin-bottom: 15px !important;
+    }
+    
+    .header-container h1 {
+        font-size: 2rem !important;
+        margin-bottom: 10px !important;
+    }
+    
+    .card {
+        height: calc(50vh - 60px) !important;
+    }
+    
+    .card-header {
+        padding: 10px 15px !important;
+    }
+    
+    .card-header h3 {
+        font-size: 1.2rem !important;
+        margin: 0 !important;
+    }
+    
+    .card-body {
+        padding: 10px !important;
+        overflow-y: auto;
+        height: calc(100% - 60px);
+    }
+    
+    .table {
+        font-size: 0.85rem !important;
+        margin-bottom: 0 !important;
+    }
+    
+    .table th, .table td {
+        padding: 6px 4px !important;
+        vertical-align: middle !important;
+    }
+    
+    .form-control, .form-control-lg {
+        font-size: 0.8rem !important;
+        padding: 4px 6px !important;
+    }
+    
+    textarea.form-control {
+        min-height: 25px !important;
+        resize: none !important;
+    }
+    
+    .badge {
+        font-size: 0.75rem !important;
+        padding: 2px 6px !important;
+    }
+    
+    .row.mt-2 {
+        margin-top: 15px !important;
+    }
+    
+    .g-4 {
+        --bs-gutter-x: 15px;
+        --bs-gutter-y: 15px;
+    }
+    
+    /* Map projection specific sizing */
+    #map-container {
+        height: 100% !important;
+    }
+    
+    .map-projection-card .card-body {
+        height: calc(100% - 60px) !important;
+    }
+    
+    /* Table column width controls */
+    .table {
+        table-layout: fixed;
+        width: 100%;
+    }
+    
+    .table th, .table td {
+        word-wrap: break-word;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
+    /* Pakistan Dams table columns */
+    .table th:nth-child(1), .table td:nth-child(1) { width: 15%; }
+    .table th:nth-child(2), .table td:nth-child(2) { width: 20%; }
+    .table th:nth-child(3), .table td:nth-child(3) { width: 15%; }
+    .table th:nth-child(4), .table td:nth-child(4) { width: 15%; }
+    .table th:nth-child(5), .table td:nth-child(5) { width: 15%; }
+    .table th:nth-child(6), .table td:nth-child(6) { width: 12%; }
+}
+
+/* Single page layout optimization */
+.container-fluid {
+    max-height: 100vh;
+    overflow-y: auto;
+    padding: 15px !important;
+}
+
+/* NDMA Logo Styling */
+.ndma-logo-inline {
+    width: 90px;
+    height: 90px;
+    object-fit: contain;
+    margin-right: 20px;
+    vertical-align: middle;
+    animation: coin-flip 30s infinite ease-in-out;
+    transform-style: preserve-3d;
+    filter: drop-shadow(3px 3px 8px rgba(0,0,0,0.5)) brightness(1.1) contrast(1.2);
+    background: radial-gradient(circle, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.6) 70%, rgba(255,255,255,0.2) 100%);
+    border-radius: 50%;
+    padding: 5px;
+    border: 2px solid rgba(255,255,255,0.8);
+}
+
+/* Coin flip animation - flips once every 30 seconds with realistic coin motion */
+@keyframes coin-flip {
+    0% { 
+        transform: rotateY(0deg) rotateX(0deg);
+    }
+    1.5% { 
+        transform: rotateY(90deg) rotateX(5deg);
+    }
+    3% { 
+        transform: rotateY(180deg) rotateX(10deg);
+    }
+    4.5% { 
+        transform: rotateY(270deg) rotateX(5deg);
+    }
+    6% { 
+        transform: rotateY(360deg) rotateX(0deg);
+    }
+    100% { 
+        transform: rotateY(360deg) rotateX(0deg);
+    }
+}
+
+/* Header positioning */
+.header-container {
+    position: relative;
+    max-width: 100%;
+    margin-bottom: 15px !important;
+}
+
+/* Dam section titles styling */
+.card-header .card-title {
+    font-weight: 900 !important;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+    font-size: 1.2rem;
+    margin-bottom: 0;
+}
+
+/* Compact row spacing */
+.row.g-4 {
+    --bs-gutter-y: 1rem;
+}
+
+.row.mt-2 {
+    margin-top: 0.5rem !important;
+}
+
+/* Card Styling */
+.card {
+    border: none;
+    border-radius: 15px;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
+}
+
+.card-header {
+    border-radius: 15px 15px 0 0 !important;
+    border: none;
+    padding: 12px 15px;
+}
+
+.card-body {
+    padding: 15px;
+}
+
+/* Compact table styling for single-page fit */
+.table thead th {
+    border-top: none;
+    padding: 10px 6px;
+    font-size: 1.1rem;
+    font-weight: 700;
+    text-align: center;
+    vertical-align: middle;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+}
+
+.table tbody td {
+    padding: 8px 6px;
+    vertical-align: middle;
+    text-align: center;
+    font-size: 1rem;
+}
+
+.table tbody tr:hover {
+    background-color: rgba(0, 123, 255, 0.1);
+}
+
+/* Enhanced percentage badges */
+.percentage-badge {
+    font-size: 1rem !important;
+    font-weight: 700 !important;
+    padding: 8px 16px !important;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.4);
+    border: 2px solid rgba(255,255,255,0.3);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+/* Black text for yellow/warning percentage badges */
+.percentage-badge.bg-warning {
+    color: #000000 !important;
+    text-shadow: none;
+}
+
+/* Form Controls */
+.form-control-sm {
+    font-size: 0.8rem;
+    padding: 4px 8px;
+    border-radius: 5px;
+    border: 1px solid #ddd;
+    text-align: center;
+}
+
+.form-control-sm:focus {
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+    border-color: #007bff;
+}
+
+textarea.form-control {
+    font-size: 1rem;
+    border-radius: 5px;
+    resize: vertical;
+    min-height: 50px;
+    font-weight: 600;
+}
+
+/* Enhanced forecast textarea styling to match Max Conservation Level font size */
+.form-control-lg textarea,
+textarea.form-control-lg {
+    font-size: 1rem !important;
+    font-weight: 600 !important;
+}
+
+/* Badges */
+.percentage-badge {
+    font-size: 0.75rem;
+    padding: 5px 8px;
+    border-radius: 10px;
+    font-weight: 600;
+}
+
+/* Map Container */
+#map-container {
+    height: 400px;
+    width: 100%;
+    border-radius: 0 0 15px 15px;
+    background: #f8f9fa;
+    position: relative;
+    overflow: hidden;
+}
+
+#media-display {
+    height: 400px;
+    width: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+}
+
+.object-fit-cover {
+    object-fit: fill;
+    width: 100% !important;
+    height: 100% !important;
+    display: block;
+}
+
+#uploaded-image {
+    width: 100%;
+    height: 100%;
+    object-fit: fill;
+    display: block;
+    border-radius: 0 0 15px 15px;
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+
+#uploaded-video {
+    width: 100%;
+    height: 100%;
+    object-fit: fill;
+    display: block;
+    border-radius: 0 0 15px 15px;
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+
+#placeholder-content {
+    height: 400px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+}
+
+/* Upload Modal Styles */
+.upload-area {
+    border: 2px dashed #dee2e6;
+    border-radius: 10px;
+    transition: all 0.3s ease;
+    cursor: pointer;
+    background-color: #f8f9fa;
+}
+
+.upload-area:hover {
+    border-color: #007bff;
+    background-color: #e3f2fd;
+}
+
+.upload-area.dragover {
+    border-color: #007bff;
+    background-color: #e3f2fd;
+    transform: scale(1.02);
+}
+
+.preview-container {
+    max-height: 300px;
+}
+
+#mediaPreview {
+    max-height: 250px;
+    overflow: hidden;
+}
+
+#previewImage,
+#previewVideo {
+    max-height: 250px;
+    object-fit: contain;
+}
+
+/* Progress bar animation */
+.progress-bar-animated {
+    animation: progress-bar-stripes 1s linear infinite;
+}
+
+@keyframes progress-bar-stripes {
+    0% {
+        background-position: 1rem 0;
+    }
+    100% {
+        background-position: 0 0;
+    }
+}
+
+/* Media info badge */
+#media-info {
+    z-index: 10;
+    display: none !important; /* Hide the filename badge */
+}
+
+/* Additional media display fixes */
+#media-display img,
+#media-display video {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: fill !important;
+    object-position: center !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+}
+
+/* Ensure full coverage */
+.card-body {
+    overflow: hidden !important;
+    padding: 0 !important;
+}
+
+/* Override any Bootstrap constraints */
+#map-container * {
+    box-sizing: border-box;
+}
+
+/* Force full width and height */
+.map-projection-card .card-body {
+    height: 400px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+.map-projection-card #media-display {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+}
+
+/* Mobile responsive adjustments for media */
+@media (max-width: 768px) {
+    #map-container {
+        height: 300px;
+    }
+    
+    #media-display {
+        height: 300px;
+    }
+    
+    #placeholder-content {
+        height: 300px;
+        padding: 20px !important;
+    }
+    
+    #placeholder-content h5 {
+        font-size: 1rem;
+    }
+    
+    #placeholder-content p {
+        font-size: 0.9rem;
+    }
+}
+
+@media (max-width: 576px) {
+    #map-container {
+        height: 250px;
+    }
+    
+    #media-display {
+        height: 250px;
+    }
+    
+    #placeholder-content {
+        height: 250px;
+        padding: 15px !important;
+    }
+}
+
+/* Buttons */
+.btn {
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+}
+
+/* Header Styling */
+.display-5 {
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+    color: #fff !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .container-fluid {
+        padding: 15px !important;
+    }
+    
+    .card-header h3 {
+        font-size: 1.1rem;
+    }
+    
+    .table {
+        font-size: 0.8rem;
+    }
+    
+    .form-control-sm {
+        font-size: 0.7rem;
+        padding: 3px 6px;
+    }
+    
+    #map {
+        height: 300px;
+    }
+}
+
+@media (max-width: 576px) {
+    .display-5 {
+        font-size: 1.5rem;
+    }
+    
+    .table thead th,
+    .table tbody td {
+        padding: 6px 4px;
+        font-size: 0.7rem;
+    }
+    
+    .card-body {
+        padding: 15px;
+    }
+}
+
+/* Loading Animation */
+.loading {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid #3498db;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* Notification Styles */
+.notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 15px 20px;
+    border-radius: 8px;
+    color: white;
+    font-weight: 600;
+    z-index: 1000;
+    opacity: 0;
+    transform: translateX(100%);
+    transition: all 0.3s ease;
+}
+
+.notification.show {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+.notification.success {
+    background-color: #28a745;
+}
+
+.notification.error {
+    background-color: #dc3545;
+}
+
+.notification.info {
+    background-color: #17a2b8;
+}
+
+/* Weather icons */
+.weather-icon {
+    font-size: 1.5rem;
+    margin-right: 10px;
+    color: #ffc107;
+}
+
+/* Dam status indicators */
+.dam-status {
+    position: relative;
+    padding-left: 20px;
+}
+
+.dam-status::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: #28a745;
+}
+
+.dam-status.warning::before {
+    background-color: #ffc107;
+}
+
+.dam-status.danger::before {
+    background-color: #dc3545;
+}

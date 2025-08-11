@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hydrological Situation Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <!-- Hybrid remote dataset URL (set after first GitHub Actions run) -->
+    <script>
+        // Replace with your real raw GitHub URL once latest.json exists
+        window.REMOTE_DATA_URL = window.REMOTE_DATA_URL || 'https://raw.githubusercontent.com/your-user/your-repo/main/latest.json';
+    </script>
+    <script src="config.js"></script>
+</head>
+<body>
+    <!-- Top Navigation Bar -->
+    <nav class="navbar">
+        <div class="navbar-content">
+            <div class="navbar-left">
+                <div class="logo-section">
+                    <img src="ndma-logo.png" alt="NDMA" class="logo" />
+                    <div class="logo-text">
+                        <h1>Hydrological Situation</h1>
+                        <span class="subtitle">Real-time Water Data</span>
+                    </div>
+                </div>
+            </div>
+            <div class="navbar-right">
+                <div class="status-panel">
+                    <div class="status-item">
+                        <span class="status-label">Status</span>
+                        <div class="status-indicator" id="connection-status">
+                            <span class="dot online"></span>
+                            <span>Live</span>
+                        </div>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Last Update</span>
+                        <span class="status-value" id="last-update">--:--</span>
+                    </div>
+                    <button class="refresh-button" onclick="refreshAllData()">
+                        <i class="fas fa-sync-alt"></i>
+                        Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Dashboard Content -->
+    <div class="dashboard-main">
+        
+        <!-- Statistics Overview Cards -->
+        <div class="stats-overview">
+            <div class="stat-card">
+                <div class="stat-icon dams">
+                    <i class="fas fa-water"></i>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-number" id="total-dams">0</div>
+                    <div class="stat-label">Major Dams</div>
+                    <div class="stat-change positive">
+                        <i class="fas fa-arrow-up"></i>
+                        <span>Active</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon headworks">
+                    <i class="fas fa-industry"></i>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-number" id="total-headworks">0</div>
+                    <div class="stat-label">Headworks</div>
+                    <div class="stat-change positive">
+                        <i class="fas fa-arrow-up"></i>
+                        <span>Monitoring</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Grid -->
+        <div class="content-grid">
+            
+            <!-- Major Dams Section -->
+            <div class="content-panel dams-panel">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <i class="fas fa-water panel-icon"></i>
+                        <h3>Major Dams & Reservoirs</h3>
+                    </div>
+                    <div class="panel-controls">
+                        <div class="view-toggles">
+                            <button class="toggle-btn active" data-view="chart" data-section="dams">
+                                <i class="fas fa-chart-line"></i>
+                                Charts
+                            </button>
+                            <button class="toggle-btn" data-view="table" data-section="dams">
+                                <i class="fas fa-table"></i>
+                                Data
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="panel-content" id="dams-content">
+                    <div class="loading-placeholder">
+                        <div class="loading-spinner"></div>
+                        <span>Loading dam data...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Headworks Section -->
+            <div class="content-panel headworks-panel">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <i class="fas fa-industry panel-icon"></i>
+                        <h3>Headworks & Barrages</h3>
+                    </div>
+                    <div class="panel-controls">
+                        <div class="view-toggles">
+                            <button class="toggle-btn active" data-view="chart" data-section="headworks">
+                                <i class="fas fa-chart-line"></i>
+                                Charts
+                            </button>
+                            <button class="toggle-btn" data-view="table" data-section="headworks">
+                                <i class="fas fa-table"></i>
+                                Data
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="panel-content" id="headworks-content">
+                    <div class="loading-placeholder">
+                        <div class="loading-spinner"></div>
+                        <span>Loading headworks data...</span>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

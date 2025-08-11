@@ -1,0 +1,40 @@
+{
+  "weather_forecast": {
+    "AJ&K": "hello this is ibrahim",
+    "Islamabad": "dadadad1111111111111111",
+    "GB": "yess bro lets go ",
+    "KP": "333333333333333333",
+    "Punjab": "32323232",
+    "Sindh": "323",
+    "Balochistan": "adadadafaafafafa"
+  },
+  "last_updated": "2025-08-07T14:38:24.536049",
+  "pakistan_dams": {
+    "Tarbela": {
+      "current_level": "11",
+      "fill_percentage": "32"
+    },
+    "Mangla": {
+      "current_level": "16",
+      "fill_percentage": "1"
+    },
+    "Chashma": {
+      "current_level": "422",
+      "fill_percentage": "99"
+    }
+  },
+  "indian_dams": {
+    "Pong": {
+      "current_level": "133",
+      "fill_percentage": "45"
+    },
+    "Bhakra": {
+      "current_level": "19.3",
+      "fill_percentage": "46"
+    },
+    "Thein": {
+      "current_level": "544.5",
+      "fill_percentage": "47"
+    }
+  }
+}
