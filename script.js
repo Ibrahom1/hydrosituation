@@ -674,9 +674,33 @@ function updateStatus(isOnline) {
     }
 }
 
+// Auto-sync cloud data when dashboard loads
+async function autoSyncCloudData() {
+    try {
+        console.log('🔄 Checking for cloud data updates...');
+        const response = await fetch('http://localhost:5000/api/sync-cloud-data');
+        
+        if (response.ok) {
+            const result = await response.json();
+            if (result.success) {
+                console.log('✅ Cloud data synced successfully:', result.timestamp);
+                return true;
+            } else {
+                console.warn('⚠️ Cloud sync failed:', result.error);
+            }
+        }
+    } catch (error) {
+        console.warn('⚠️ Cloud sync unavailable, using local data:', error.message);
+    }
+    return false;
+}
+
 // Initialize dashboard
 document.addEventListener('DOMContentLoaded', async function() {
     console.log('Modern professional dashboard initializing...');
+    
+    // Try to sync cloud data first
+    await autoSyncCloudData();
     
     // Add event listeners for toggle buttons
     document.addEventListener('click', function(e) {
@@ -694,6 +718,9 @@ document.addEventListener('DOMContentLoaded', async function() {
     
     // Auto-refresh every 5 minutes
     setInterval(refreshAllData, 5 * 60 * 1000);
+    
+    // Auto-sync cloud data every 30 minutes
+    setInterval(autoSyncCloudData, 30 * 60 * 1000);
     
     console.log('Modern professional dashboard initialized successfully');
 });
