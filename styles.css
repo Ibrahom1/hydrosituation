@@ -1,22 +1,197 @@
+/* === Enhanced River Section and Name Styling === */
+.river-header, .section-header, .river-title {
+    background: linear-gradient(90deg, #60a5fa 0%, #06b6d4 100%) !important; /* blue to teal */
+    color: #fff !important;
+    font-size: 1.25rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    padding: 1rem 1.5rem;
+    border-bottom: 3px solid #06b6d4;
+    border-top-left-radius: 1.5rem;
+    border-top-right-radius: 1.5rem;
+    box-shadow: 0 4px 16px 0 rgba(6,182,212,0.10);
+    text-shadow: 0 2px 8px rgba(6,182,212,0.13);
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+.river-title i {
+    color: #fff !important;
+    font-size: 1.5rem;
+    margin-right: 0.5rem;
+    filter: drop-shadow(0 2px 4px rgba(6,182,212,0.15));
+}
+.river-count {
+    background: #06b6d4 !important;
+    color: #fff !important;
+    border-radius: 1rem;
+    padding: 0.3rem 1rem;
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin-left: auto;
+    box-shadow: 0 2px 8px rgba(6,182,212,0.10);
+}
+.river-section {
+    background: linear-gradient(120deg, #eaf1fb 60%, #f0fdfa 100%) !important;
+    border-radius: 1.5rem !important;
+    border: 2px solid #06b6d4 !important;
+    box-shadow: 0 4px 24px 0 rgba(6,182,212,0.08);
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+}
+.station-name, .river-organized-table .station-name {
+    color: #0e7490 !important; /* deep teal */
+    font-weight: 800 !important;
+    font-size: 1.15rem !important;
+    letter-spacing: 0.04em;
+    text-shadow: 0 1px 6px rgba(6,182,212,0.10);
+    font-family: 'Poppins', 'Inter', sans-serif;
+}
+/* === Blue-White Theme and River Section Styling Overrides === */
+:root {
+    --primary-blue-xlight: #eaf1fb;
+    --primary-blue-gradient: linear-gradient(120deg, #eaf1fb 0%, #60a5fa 100%);
+}
+body {
+    background: var(--primary-blue-gradient) !important;
+}
+.content-panel, .card {
+    background: linear-gradient(120deg, var(--white) 80%, var(--primary-blue-xlight) 100%) !important;
+}
+.panel-header, .card-header {
+    background: linear-gradient(90deg, var(--primary-blue) 60%, var(--primary-blue-light) 100%) !important;
+    color: #fff !important;
+    text-shadow: 0 2px 8px rgba(37,99,235,0.08);
+}
+.stat-icon.dams {
+    background: linear-gradient(135deg, var(--primary-blue), var(--primary-blue-light)) !important;
+}
+.stat-icon.headworks {
+    background: linear-gradient(135deg, var(--primary-cyan), var(--primary-blue-light)) !important;
+}
+.stat-icon.flow {
+    background: linear-gradient(135deg, var(--primary-green), var(--primary-blue-light)) !important;
+}
+.stat-icon.alerts {
+    background: linear-gradient(135deg, var(--primary-blue-light), #fbbf24) !important;
+}
+.chart-header {
+    background: linear-gradient(90deg, var(--primary-blue-light) 60%, var(--primary-blue) 100%) !important;
+    color: #fff !important;
+    text-shadow: 0 2px 8px rgba(37,99,235,0.08);
+}
+.toggle-btn.active {
+    background: linear-gradient(90deg, var(--primary-blue), var(--primary-blue-light)) !important;
+    color: #fff !important;
+}
+.refresh-btn {
+    background: linear-gradient(90deg, var(--primary-blue), var(--primary-blue-light)) !important;
+    color: #fff !important;
+}
+.refresh-btn:hover {
+    background: linear-gradient(90deg, var(--primary-blue-light), var(--primary-blue)) !important;
+}
+/* River Section Styling - Blue/White Theme */
+.river-header, .section-header, .river-title {
+    background: linear-gradient(90deg, var(--primary-blue-light) 60%, var(--primary-blue) 100%) !important;
+    color: #fff !important;
+    font-size: 1.2rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 0.75rem 1.25rem;
+    border-bottom: 2px solid var(--primary-blue);
+    text-shadow: 0 2px 8px rgba(37,99,235,0.10);
+}
+.river-title i {
+    color: #fff !important;
+    font-size: 1.3rem;
+    margin-right: 0.5rem;
+    filter: drop-shadow(0 2px 4px rgba(37,99,235,0.10));
+}
+.river-count {
+    background: var(--primary-blue-light) !important;
+    color: #fff !important;
+    border-radius: 1rem;
+    padding: 0.25rem 0.75rem;
+    font-size: 1rem;
+    font-weight: 600;
+    margin-left: auto;
+    box-shadow: 0 2px 8px rgba(96,165,250,0.10);
+}
+.station-name, .river-organized-table .station-name {
+    color: var(--primary-blue-dark) !important;
+    font-weight: 700 !important;
+    font-size: 1.05rem !important;
+    letter-spacing: 0.02em;
+    text-shadow: 0 1px 4px rgba(37,99,235,0.07);
+}
+/* Flood Level Status Badges - Prominent and Colorful (Legend Matched) */
+.chart-status.normal {
+    background: #2ecc40 !important;      /* Green */
+    color: #fff !important;
+    border: 2px solid #27ae36;
+    font-weight: bold;
+    box-shadow: 0 2px 8px rgba(46,204,64,0.15);
+}
+.chart-status.low {
+    background: #0074D9 !important;      /* Blue */
+    color: #fff !important;
+    border: 2px solid #005fa3;
+    font-weight: bold;
+    box-shadow: 0 2px 8px rgba(0,116,217,0.15);
+}
+.chart-status.medium {
+    background: #0000FF !important;      /* Dark Blue */
+    color: #fff !important;
+    border: 2px solid #00008B;
+    font-weight: bold;
+    box-shadow: 0 2px 8px rgba(0,0,255,0.15);
+}
+.chart-status.high {
+    background: #8B0000 !important;      /* Brown */
+    color: #fff !important;
+    border: 2px solid #660000;
+    font-weight: bold;
+    box-shadow: 0 2px 8px rgba(139,0,0,0.15);
+}
+.chart-status.very-high {
+    background: #B22222 !important;      /* Dark Red */
+    color: #fff !important;
+    border: 2px solid #7a1616;
+    font-weight: bold;
+    box-shadow: 0 2px 8px rgba(178,34,34,0.15);
+}
+.chart-status.exceptional {
+    background: #FF4136 !important;      /* Red */
+    color: #fff !important;
+    border: 2px solid #c12d23;
+    font-weight: bold;
+    box-shadow: 0 2px 8px rgba(255,65,54,0.15);
+}
 /* Modern Hydrological Dashboard - Professional White Theme */
 
 :root {
     /* Primary Colors */
     --primary-blue: #2563eb;
-    --primary-blue-light: #3b82f6;
-    --primary-blue-dark: #1d4ed8;
-    
+    --primary-blue-light: #60a5fa;
+    --primary-blue-dark: #1e40af;
+    --primary-purple: #a21caf;
+    --primary-pink: #ec4899;
+    --primary-yellow: #fbbf24;
+    --primary-orange: #fb7185;
+    --primary-green: #22c55e;
+    --primary-cyan: #06b6d4;
     /* Secondary Colors */
     --secondary-cyan: #06b6d4;
     --secondary-teal: #0d9488;
     --secondary-green: #059669;
-    
+    --secondary-purple: #7c3aed;
+    --secondary-pink: #f472b6;
     /* Status Colors */
     --success: #10b981;
     --warning: #f59e0b;
     --danger: #ef4444;
     --info: #3b82f6;
-    
     /* Neutral Colors */
     --white: #ffffff;
     --gray-50: #f9fafb;
@@ -29,20 +204,18 @@
     --gray-700: #374151;
     --gray-800: #1f2937;
     --gray-900: #111827;
-    
     /* Shadows */
-    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-    --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
-    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-    --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
-    
+    --shadow-sm: 0 2px 8px 0 rgb(60 60 180 / 0.07);
+    --shadow: 0 4px 16px 0 rgb(60 60 180 / 0.10), 0 2px 8px -2px rgb(60 60 180 / 0.08);
+    --shadow-md: 0 8px 24px -2px rgb(60 60 180 / 0.12), 0 4px 12px -4px rgb(60 60 180 / 0.10);
+    --shadow-lg: 0 16px 32px -4px rgb(60 60 180 / 0.13), 0 8px 20px -8px rgb(60 60 180 / 0.10);
+    --shadow-xl: 0 32px 48px -8px rgb(60 60 180 / 0.14), 0 16px 32px -12px rgb(60 60 180 / 0.10);
     /* Border Radius */
     --radius-sm: 0.375rem;
-    --radius: 0.5rem;
-    --radius-md: 0.75rem;
-    --radius-lg: 1rem;
-    --radius-xl: 1.5rem;
+    --radius: 0.75rem;
+    --radius-md: 1rem;
+    --radius-lg: 1.5rem;
+    --radius-xl: 2.5rem;
 }
 
 /* Global Styles */
@@ -53,12 +226,13 @@
 }
 
 body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: linear-gradient(135deg, var(--gray-50) 0%, var(--gray-100) 100%);
+    font-family: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: linear-gradient(120deg, var(--primary-blue-light) 0%, var(--primary-pink) 100%);
     color: var(--gray-900);
     line-height: 1.5;
     min-height: 100vh;
     overflow-x: hidden;
+    letter-spacing: 0.01em;
 }
 
 /* Navigation Bar */
@@ -252,20 +426,22 @@ body {
     color: var(--white);
 }
 
+/* More vibrant stat icons */
 .stat-icon.dams {
-    background: linear-gradient(135deg, var(--primary-blue), var(--primary-blue-light));
+    background: linear-gradient(135deg, var(--primary-blue), var(--primary-purple));
+    box-shadow: 0 4px 16px 0 rgba(37,99,235,0.15);
 }
-
 .stat-icon.headworks {
-    background: linear-gradient(135deg, var(--secondary-cyan), var(--secondary-teal));
+    background: linear-gradient(135deg, var(--primary-cyan), var(--primary-pink));
+    box-shadow: 0 4px 16px 0 rgba(6,182,212,0.15);
 }
-
 .stat-icon.flow {
-    background: linear-gradient(135deg, var(--secondary-teal), var(--secondary-green));
+    background: linear-gradient(135deg, var(--primary-green), var(--primary-yellow));
+    box-shadow: 0 4px 16px 0 rgba(34,197,94,0.15);
 }
-
 .stat-icon.alerts {
-    background: linear-gradient(135deg, var(--warning), #f97316);
+    background: linear-gradient(135deg, var(--primary-orange), var(--primary-pink));
+    box-shadow: 0 4px 16px 0 rgba(251,113,133,0.15);
 }
 
 .stat-content {
@@ -317,11 +493,12 @@ body {
     margin: 0 auto;
 }
 
+/* More modern card look */
 .content-panel {
-    background: var(--white);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow);
-    border: 1px solid var(--gray-200);
+    background: linear-gradient(120deg, var(--white) 80%, var(--primary-blue-light) 100%);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-lg);
+    border: none;
     overflow: hidden;
     transition: all 0.2s ease;
 }
@@ -356,13 +533,15 @@ body {
 }
 
 /* Panel Header */
+/* More colorful panel header */
 .panel-header {
-    padding: 1rem 1.5rem;
-    border-bottom: 1px solid var(--gray-200);
+    padding: 0.75rem 1.25rem;
+    border-bottom: 2px solid var(--primary-blue-light);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background: var(--gray-50);
+    background: linear-gradient(90deg, var(--primary-blue) 60%, var(--primary-pink) 100%);
+    color: var(--white);
 }
 
 .panel-title {
@@ -371,16 +550,19 @@ body {
     gap: 0.75rem;
 }
 
+/* Panel title more prominent */
 .panel-title h3 {
-    font-size: 1.125rem;
-    font-weight: 600;
-    color: var(--gray-900);
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--white);
     margin: 0;
+    letter-spacing: 0.01em;
 }
 
+/* Panel icon white for contrast */
 .panel-icon {
-    color: var(--primary-blue);
-    font-size: 1.25rem;
+    color: var(--white);
+    font-size: 1.5rem;
 }
 
 .panel-controls {
@@ -412,8 +594,9 @@ body {
     gap: 0.5rem;
 }
 
+/* Toggle button active more colorful */
 .toggle-btn.active {
-    background: var(--primary-blue);
+    background: linear-gradient(90deg, var(--primary-blue), var(--primary-pink));
     color: var(--white);
     box-shadow: var(--shadow-sm);
 }
@@ -424,8 +607,9 @@ body {
 }
 
 /* Panel Content */
+/* Less padding for compact look */
 .panel-content {
-    padding: 1rem;
+    padding: 0.5rem 0.5rem 0.5rem 0.5rem;
     height: calc(100% - 70px);
     overflow: auto;
 }
@@ -458,19 +642,22 @@ body {
     transform: translateY(-2px);
 }
 
+/* More colorful chart header */
 .chart-header {
-    padding: 1rem 1.5rem;
-    background: var(--gray-50);
-    border-bottom: 1px solid var(--gray-200);
+    padding: 0.5rem 1rem;
+    background: linear-gradient(90deg, var(--primary-blue-light) 60%, var(--primary-pink) 100%);
+    border-bottom: 2px solid var(--primary-blue);
     display: flex;
     align-items: center;
     justify-content: space-between;
+    color: var(--white);
 }
 
+/* Chart title more prominent */
 .chart-title {
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: var(--gray-900);
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--white);
     margin: 0;
 }
 
@@ -488,6 +675,47 @@ body {
     color: var(--white);
 }
 
+.chart-status.low {
+    background: linear-gradient(90deg, #38bdf8 60%, #0ea5e9 100%);
+    color: #fff;
+    border: 2px solid #0ea5e9;
+    font-weight: 700;
+    box-shadow: 0 2px 8px rgba(14,165,233,0.15);
+    letter-spacing: 0.5px;
+}
+.chart-status.medium {
+    background: linear-gradient(90deg, #fbbf24 60%, #f59e0b 100%);
+    color: #fff;
+    border: 2px solid #f59e0b;
+    font-weight: 700;
+    box-shadow: 0 2px 8px rgba(245,158,11,0.15);
+    letter-spacing: 0.5px;
+}
+.chart-status.high {
+    background: linear-gradient(90deg, #f87171 60%, #ef4444 100%);
+    color: #fff;
+    border: 2px solid #ef4444;
+    font-weight: 700;
+    box-shadow: 0 2px 8px rgba(239,68,68,0.15);
+    letter-spacing: 0.5px;
+}
+.chart-status.very-high {
+    background: linear-gradient(90deg, #a21caf 60%, #f43f5e 100%);
+    color: #fff;
+    border: 2px solid #a21caf;
+    font-weight: 800;
+    box-shadow: 0 4px 16px rgba(164,28,175,0.18);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+.chart-status.normal {
+    background: linear-gradient(90deg, #22c55e 60%, #16a34a 100%);
+    color: #fff;
+    border: 2px solid #16a34a;
+    font-weight: 700;
+    box-shadow: 0 2px 8px rgba(34,197,94,0.15);
+    letter-spacing: 0.5px;
+}
 .chart-status.high {
     background: var(--warning);
     color: var(--white);
@@ -498,9 +726,10 @@ body {
     color: var(--white);
 }
 
+/* Less padding for chart canvas */
 .chart-canvas {
-    height: 300px;
-    padding: 1rem;
+    height: 260px;
+    padding: 0.25rem 0.25rem 0.25rem 0.25rem;
 }
 
 .chart-info {
@@ -1021,27 +1250,31 @@ canvas {
 }
 
 /* Card styles */
+/* More modern card style */
 .card {
     height: calc(50vh - 35px) !important;
     border: none;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+    box-shadow: 0 8px 32px rgba(60,60,180,0.13);
     backdrop-filter: blur(10px);
-    background: rgba(255,255,255,0.95);
-    border-radius: 15px;
+    background: linear-gradient(120deg, var(--white) 80%, var(--primary-blue-light) 100%);
+    border-radius: 2rem;
 }
 
+/* Card header more colorful */
 .card-header {
     padding: 8px 15px !important;
-    background: rgba(0,0,0,0.1) !important;
-    border-bottom: 2px solid rgba(0,0,0,0.1);
-    border-radius: 15px 15px 0 0 !important;
+    background: linear-gradient(90deg, var(--primary-blue) 60%, var(--primary-pink) 100%) !important;
+    border-bottom: 2px solid var(--primary-blue-light);
+    border-radius: 2rem 2rem 0 0 !important;
+    color: var(--white);
 }
 
+/* Card header title more prominent */
 .card-header h3 {
-    font-size: 1.1rem !important;
+    font-size: 1.15rem !important;
     margin: 0 !important;
-    color: #2c3e50;
-    font-weight: 600;
+    color: var(--white);
+    font-weight: 700;
 }
 
 .card-body {
@@ -1075,19 +1308,19 @@ canvas {
     background: rgba(0,123,255,0.05);
 }
 
-/* Chart container */
+/* Chart container less padding */
 .chart-container {
     width: 100px;
     height: 40px;
     position: relative;
+    padding: 0 !important;
 }
-
 .chart-container canvas {
     width: 100% !important;
     height: 100% !important;
 }
 
-/* Refresh button */
+/* Refresh button more vibrant */
 .refresh-btn {
     position: fixed;
     top: 20px;
@@ -1095,20 +1328,20 @@ canvas {
     z-index: 1000;
     border-radius: 50px;
     padding: 10px 20px;
-    background: rgba(255,255,255,0.2);
-    border: 1px solid rgba(255,255,255,0.3);
+    background: linear-gradient(90deg, var(--primary-blue), var(--primary-pink));
+    border: none;
     color: white;
     backdrop-filter: blur(10px);
     transition: all 0.3s ease;
+    font-weight: 600;
+    box-shadow: 0 4px 16px 0 rgba(37,99,235,0.15);
 }
-
 .refresh-btn:hover {
-    background: rgba(255,255,255,0.3);
+    background: linear-gradient(90deg, var(--primary-pink), var(--primary-blue));
     color: white;
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    box-shadow: 0 8px 24px rgba(236,72,153,0.15);
 }
-
 .refresh-btn:disabled {
     opacity: 0.6;
     transform: none;

@@ -5,9 +5,22 @@ let chartsInstances = {};
 let currentView = { dams: 'chart', headworks: 'chart' };
 
 // Chart.js global configuration
-Chart.defaults.font.family = 'Inter, -apple-system, BlinkMacSystemFont, sans-serif';
-Chart.defaults.font.size = 12;
-Chart.defaults.color = '#6b7280';
+Chart.defaults.font.family = 'Poppins, Inter, Segoe UI, Roboto, sans-serif';
+Chart.defaults.font.size = 14;
+Chart.defaults.color = '#22223b';
+Chart.defaults.plugins.legend.labels.color = '#22223b';
+Chart.defaults.plugins.title.color = '#a21caf';
+Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(37,99,235,0.95)';
+Chart.defaults.plugins.tooltip.titleColor = '#fff';
+Chart.defaults.plugins.tooltip.bodyColor = '#fff';
+Chart.defaults.plugins.tooltip.borderColor = '#a21caf';
+Chart.defaults.plugins.tooltip.borderWidth = 1;
+Chart.defaults.layout = Chart.defaults.layout || {};
+Chart.defaults.layout.padding = { left: 8, right: 8, top: 8, bottom: 8 };
+Chart.defaults.elements.line.borderWidth = 3;
+Chart.defaults.elements.point.radius = 5;
+Chart.defaults.elements.point.backgroundColor = '#ec4899';
+Chart.defaults.elements.point.borderColor = '#fff';
 
 // Professional color palette
 const colors = {
