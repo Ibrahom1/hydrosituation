@@ -482,72 +482,171 @@ async function createAllCharts(data, sectionType) {
     }
 }
 
-// Create inflow/outflow chart
+const floodLevels = {
+    'TARBELA': { LOW: 250000, MEDIUM: 375000, HIGH: 500000, VERY_HIGH: 650000, EX_HIGH: 800000 },
+    'ATTOCK': { LOW: 250000, MEDIUM: 375000, HIGH: 500000, VERY_HIGH: 650000, EX_HIGH: 800000 },
+    'KALABAGH': { LOW: 250000, MEDIUM: 375000, HIGH: 500000, VERY_HIGH: 650000, EX_HIGH: 800000 },
+    'CHASHMA': { LOW: 250000, MEDIUM: 375000, HIGH: 500000, VERY_HIGH: 650000, EX_HIGH: 800000 },
+    'TAUNSA': { LOW: 250000, MEDIUM: 375000, HIGH: 500000, VERY_HIGH: 650000, EX_HIGH: 800000 },
+    'GUDDU': { LOW: 200000, MEDIUM: 350000, HIGH: 500000, VERY_HIGH: 700000, EX_HIGH: 900000 },
+    'SUKKUR': { LOW: 200000, MEDIUM: 350000, HIGH: 500000, VERY_HIGH: 700000, EX_HIGH: 900000 },
+    'KOTRI': { LOW: 200000, MEDIUM: 300000, HIGH: 450000, VERY_HIGH: 650000, EX_HIGH: 800000 },
+    'KOHALA': { LOW: 100000, MEDIUM: 150000, HIGH: 200000, VERY_HIGH: 300000, EX_HIGH: 400000 },
+    'MANGLA': { LOW: 75000, MEDIUM: 110000, HIGH: 150000, VERY_HIGH: 225000, EX_HIGH: 300000 },
+    'RASUL': { LOW: 75000, MEDIUM: 110000, HIGH: 150000, VERY_HIGH: 225000, EX_HIGH: 300000 },
+    'MARALA': { LOW: 100000, MEDIUM: 150000, HIGH: 200000, VERY_HIGH: 400000, EX_HIGH: 600000 },
+    'KHANKI': { LOW: 100000, MEDIUM: 150000, HIGH: 200000, VERY_HIGH: 400000, EX_HIGH: 600000 },
+    'Q.ABAD': { LOW: 100000, MEDIUM: 150000, HIGH: 200000, VERY_HIGH: 400000, EX_HIGH: 600000 },
+    'QADIRABAD': { LOW: 100000, MEDIUM: 150000, HIGH: 200000, VERY_HIGH: 400000, EX_HIGH: 600000 },
+    'TRIMMU': { LOW: 150000, MEDIUM: 200000, HIGH: 300000, VERY_HIGH: 450000, EX_HIGH: 600000 },
+    'PANJNAD': { LOW: 150000, MEDIUM: 200000, HIGH: 300000, VERY_HIGH: 450000, EX_HIGH: 600000 },
+    'JASSAR': { LOW: 50000, MEDIUM: 75000, HIGH: 100000, VERY_HIGH: 150000, EX_HIGH: 200000 },
+    'SHAHDARA': { LOW: 40000, MEDIUM: 65000, HIGH: 90000, VERY_HIGH: 135000, EX_HIGH: 180000 },
+    'BALLOKI': { LOW: 40000, MEDIUM: 65000, HIGH: 90000, VERY_HIGH: 135000, EX_HIGH: 180000 },
+    'SIDHNAI': { LOW: 30000, MEDIUM: 46000, HIGH: 60000, VERY_HIGH: 90000, EX_HIGH: 130000 },
+    'SULEMANKI': { LOW: 50000, MEDIUM: 80000, HIGH: 120000, VERY_HIGH: 175000, EX_HIGH: 225000 },
+    'ISLAM': { LOW: 50000, MEDIUM: 80000, HIGH: 120000, VERY_HIGH: 175000, EX_HIGH: 225000 }
+};
+
+// Flood level colors matching the image
+const floodColors = {
+    LOW: '#19aec2ff',           // Green - Normal Flow
+    MEDIUM: '#0a0edbff',        // Teal - Low Flood  
+    HIGH: '#887406ff',          // Blue - Medium Flood
+    VERY_HIGH: '#632402ff',     // Orange/Brown - High Flood
+    EX_HIGH: '#dc2626'        // Red - Very High/Exceptionally High Flood
+};
+
+// Get flood levels for a site
+function getFloodLevelsForSite(siteName) {
+    const normalizedName = siteName.toUpperCase().replace(/\s+/g, '').replace('DAM', '');
+    
+    // Handle special cases
+    if (normalizedName.includes('TARBELA')) return floodLevels['TARBELA'];
+    if (normalizedName.includes('CHASHMA')) return floodLevels['CHASHMA'];
+    if (normalizedName.includes('MANGLA')) return floodLevels['MANGLA'];
+    if (normalizedName.includes('KALABAGH')) return floodLevels['KALABAGH'];
+    if (normalizedName.includes('TAUNSA')) return floodLevels['TAUNSA'];
+    if (normalizedName.includes('GUDDU')) return floodLevels['GUDDU'];
+    if (normalizedName.includes('SUKKUR')) return floodLevels['SUKKUR'];
+    if (normalizedName.includes('KOTRI')) return floodLevels['KOTRI'];
+    if (normalizedName.includes('MARALA')) return floodLevels['MARALA'];
+    if (normalizedName.includes('KHANKI')) return floodLevels['KHANKI'];
+    if (normalizedName.includes('QADIRABAD') || normalizedName.includes('Q.ABAD')) return floodLevels['Q.ABAD'];
+    if (normalizedName.includes('TRIMMU')) return floodLevels['TRIMMU'];
+    if (normalizedName.includes('PANJNAD')) return floodLevels['PANJNAD'];
+    if (normalizedName.includes('JASSAR')) return floodLevels['JASSAR'];
+    if (normalizedName.includes('SHAHDARA')) return floodLevels['SHAHDARA'];
+    if (normalizedName.includes('BALLOKI')) return floodLevels['BALLOKI'];
+    if (normalizedName.includes('SIDHNAI')) return floodLevels['SIDHNAI'];
+    if (normalizedName.includes('SULEMANKI')) return floodLevels['SULEMANKI'];
+    if (normalizedName.includes('ISLAM')) return floodLevels['ISLAM'];
+    if (normalizedName.includes('RASUL')) return floodLevels['RASUL'];
+    
+    return null;
+}
+
 function createInflowOutflowChart(containerId, name, inflowSeries, outflowSeries) {
     const container = document.getElementById(containerId);
     if (!container) return null;
-    
+
     const canvas = document.createElement('canvas');
     canvas.className = 'chart-canvas';
     container.appendChild(canvas);
-    
-    const inflowData = inflowSeries;
-    const outflowData = outflowSeries;
-    
+
+    const datasets = [];
+
+    if (inflowSeries && inflowSeries.length > 0) {
+        datasets.push({
+            label: 'Inflow',
+            data: inflowSeries,
+            borderColor: '#1d4ed8', // brighter blue
+            backgroundColor: '#1d4ed820',
+            fill: false,
+            tension: 0.4,
+            pointRadius: 0,
+            pointHoverRadius: 6, // bigger hover point
+            borderWidth: 3 // thicker line
+        });
+    }
+
+    if (outflowSeries && outflowSeries.length > 0) {
+        datasets.push({
+            label: 'Outflow',
+            data: outflowSeries,
+            borderColor: '#059669', // brighter green
+            backgroundColor: 'rgba(5, 150, 105, 0.25)', // lighter green fill
+            fill: true,
+            tension: 0.4,
+            pointRadius: 0,
+            pointHoverRadius: 6,
+            borderWidth: 3
+        });
+    }
+
+    // Flood levels
+    const levels = getFloodLevelsForSite(name);
+    if (levels) {
+        const baseSeries = inflowSeries?.length ? inflowSeries : outflowSeries;
+        if (baseSeries?.length) {
+            Object.entries(levels).forEach(([level, value]) => {
+                datasets.push({
+                    label: `${level.replace('_', ' ')} Flood`,
+                    data: baseSeries.map(point => ({ x: point.x, y: value })),
+                    borderColor: floodColors[level] || '#000',
+                    backgroundColor: 'transparent',
+                    borderDash: [5, 5],
+                    borderWidth: 2, // slightly thicker flood lines
+                    fill: false,
+                    pointRadius: 0,
+                    pointHoverRadius: 0,
+                    tension: 0
+                });
+            });
+        }
+    }
+
+    const allYs = datasets.flatMap(ds => ds.data.map(p => p?.y)).filter(v => typeof v === 'number');
+    const maxFlow = Math.max(0, ...allYs);
+
     const chart = new Chart(canvas, {
         type: 'line',
-        data: {
-            datasets: [{
-                label: 'Inflow',
-                data: inflowData,
-                borderColor: colors.primary,
-                backgroundColor: colors.primary + '20',
-                fill: false,
-                tension: 0.4,
-                pointRadius: 0,
-                pointHoverRadius: 4,
-                borderWidth: 2
-            }, {
-                label: 'Outflow',
-                data: outflowData,
-                borderColor: colors.secondary,
-                backgroundColor: colors.secondary + '20',
-                fill: false,
-                tension: 0.4,
-                pointRadius: 0,
-                pointHoverRadius: 4,
-                borderWidth: 2
-            }]
-        },
+        data: { datasets },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            interaction: {
-                intersect: false,
-                mode: 'index'
-            },
+            interaction: { intersect: false, mode: 'index' },
             plugins: {
                 legend: {
                     display: true,
                     position: 'top',
                     labels: {
                         usePointStyle: true,
-                        padding: 15,
-                        font: {
-                            size: 11
+                        padding: 8,
+                        font: { size: 10 },
+                        filter: function (legendItem, chartData) {
+                            if (legendItem.text.includes('Inflow') || legendItem.text.includes('Outflow')) {
+                                return true;
+                            }
+                            const firstDataPoint = chartData.datasets[legendItem.datasetIndex]?.data?.[0];
+                            const levelValue = firstDataPoint?.y ?? 0;
+                            return levelValue <= maxFlow * 5;
                         }
                     }
                 },
                 tooltip: {
-                    backgroundColor: 'rgba(17, 24, 39, 0.9)',
+                    backgroundColor: 'rgba(17, 24, 39, 0.95)',
                     titleColor: '#f9fafb',
                     bodyColor: '#f9fafb',
-                    borderColor: colors.primary,
+                    borderColor: '#1d4ed8',
                     borderWidth: 1,
                     cornerRadius: 8,
                     displayColors: true,
                     callbacks: {
-                        label: function(context) {
+                        label: function (context) {
+                            if (context.dataset.label.includes('Flood')) {
+                                return `${context.dataset.label}: ${context.parsed.y.toLocaleString()} cusecs (Threshold)`;
+                            }
                             return `${context.dataset.label}: ${context.parsed.y.toLocaleString()} cusecs`;
                         }
                     }
@@ -556,50 +655,32 @@ function createInflowOutflowChart(containerId, name, inflowSeries, outflowSeries
             scales: {
                 x: {
                     type: 'time',
-                    time: {
-                        displayFormats: {
-                            hour: 'HH:mm'
-                        }
-                    },
-                    grid: {
-                        color: colors.gray[200],
-                        drawTicks: false
-                    },
-                    border: {
-                        display: false
-                    },
+                    time: { displayFormats: { hour: 'HH:mm' } },
+                    grid: { color: colors.gray[200], drawTicks: false },
+                    border: { display: false },
                     ticks: {
                         maxTicksLimit: 6,
                         color: colors.gray[500],
-                        font: {
-                            size: 10
-                        }
+                        font: { size: 10 }
                     }
                 },
                 y: {
-                    grid: {
-                        color: colors.gray[200],
-                        drawTicks: false
-                    },
-                    border: {
-                        display: false
-                    },
+                    grid: { color: colors.gray[200], drawTicks: false },
+                    border: { display: false },
                     ticks: {
                         color: colors.gray[500],
-                        font: {
-                            size: 10
-                        },
-                        callback: function(value) {
-                            return value.toLocaleString();
-                        }
+                        font: { size: 10 },
+                        callback: value => value.toLocaleString()
                     }
                 }
             }
         }
     });
-    
+
     return chart;
 }
+
+
 
 // Update statistics overview
 function updateStatistics() {
