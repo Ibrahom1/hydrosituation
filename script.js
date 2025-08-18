@@ -584,23 +584,40 @@ function createInflowOutflowChart(containerId, name, inflowSeries, outflowSeries
         });
     }
 
-    // Flood levels
+    // Flood levels: Only show the next threshold line above the current outflow value, but keep all in legend (hidden by default except next)
     const levels = getFloodLevelsForSite(name);
     if (levels) {
-        const baseSeries = inflowSeries?.length ? inflowSeries : outflowSeries;
+        const baseSeries = outflowSeries?.length ? outflowSeries : inflowSeries;
         if (baseSeries?.length) {
-            Object.entries(levels).forEach(([level, value]) => {
+            // Get the latest outflow value
+            const latestPoint = baseSeries[baseSeries.length - 1];
+            const currentValue = latestPoint?.y || 0;
+            // Levels are in order: LOW, MEDIUM, HIGH, VERY_HIGH, EX_HIGH
+            const levelOrder = ['LOW', 'MEDIUM', 'HIGH', 'VERY_HIGH', 'EX_HIGH'];
+            let nextLevel = null;
+            for (let i = 0; i < levelOrder.length; i++) {
+                const levelKey = levelOrder[i];
+                const threshold = levels[levelKey];
+                if (typeof threshold === 'number' && currentValue < threshold) {
+                    nextLevel = levelKey;
+                    break;
+                }
+            }
+            // Add all levels, but only nextLevel is visible, others are hidden (can be enabled from legend)
+            levelOrder.forEach(levelKey => {
+                const value = levels[levelKey];
                 datasets.push({
-                    label: `${level.replace('_', ' ')} Flood`,
+                    label: `${levelKey.replace('_', ' ')} Flood`,
                     data: baseSeries.map(point => ({ x: point.x, y: value })),
-                    borderColor: floodColors[level] || '#000',
+                    borderColor: floodColors[levelKey] || '#000',
                     backgroundColor: 'transparent',
                     borderDash: [5, 5],
-                    borderWidth: 2, // slightly thicker flood lines
+                    borderWidth: 2,
                     fill: false,
                     pointRadius: 0,
                     pointHoverRadius: 0,
-                    tension: 0
+                    tension: 0,
+                    hidden: nextLevel !== levelKey // Only nextLevel is visible, others hidden
                 });
             });
         }
