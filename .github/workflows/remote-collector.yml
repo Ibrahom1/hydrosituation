@@ -2,7 +2,7 @@ name: Remote Data Collector (6h) - JSON + Database
 
 on:
   schedule:
-    - cron: '0 */6 * * *'   # every 6 hours UTC
+    - cron: '0 */6 * * *'  # every 6 hours UTC
   workflow_dispatch: {}
 
 jobs:
@@ -13,17 +13,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        
+              
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          
+                
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install requests
-          
+                
       - name: Export secret token
         env:
           ACTION_TOKEN: ${{ secrets.FFD_API_KEY }}
@@ -34,7 +34,7 @@ jobs:
           else
             echo "No FFD_API_KEY secret configured; collector will likely skip.";
           fi
-          
+                
       - name: Restore database from previous run
         run: |
           if [ -f hydro_history.db ]; then
@@ -42,14 +42,14 @@ jobs:
           else
             echo "No existing database - will create new one"
           fi
-          
+                
       - name: Run enhanced collector (JSON + Database)
         env:
           FFD_API_KEY: ${{ env.FFD_API_KEY }}
         run: |
           echo "Starting data collection with database support..."
           python remote_collector.py || echo "Collector script signaled non-zero; continuing (graceful)."
-          
+                
       - name: Check collection results
         run: |
           echo "=== Collection Results ==="
@@ -61,7 +61,7 @@ jobs:
           else
             echo "❌ latest.json not found"
           fi
-          
+                    
           if [ -f hydro_history.db ]; then
             echo "✅ Database exists"
             echo "   Size: $(stat -c%s hydro_history.db) bytes"
@@ -70,28 +70,29 @@ jobs:
           else
             echo "❌ Database not found"
           fi
-          
+                
       - name: Commit both JSON and Database
         run: |
           git config user.name 'github-actions'
           git config user.email 'actions@github.com'
-          
+                    
           # Add files that exist
           if [ -f latest.json ]; then
             git add latest.json
             echo "Added latest.json to commit"
           fi
-          
+                    
           if [ -f hydro_history.db ]; then
-            git add hydro_history.db
-            echo "Added hydro_history.db to commit"
+            # Force add the database file even if it's in .gitignore
+            git add -f hydro_history.db
+            echo "Added hydro_history.db to commit (forced)"
           fi
-          
+                    
           # Only commit if there are changes
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "chore: update dataset & database $(date -u +'%Y-%m-%dT%H:%M:%SZ')" || echo 'Commit failed'
-            git push || echo 'Push failed'
+            git commit -m "chore: update dataset & database $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            git push
             echo "Successfully committed and pushed updates"
           fi
