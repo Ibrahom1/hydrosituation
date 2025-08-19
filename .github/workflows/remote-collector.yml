@@ -1,4 +1,4 @@
-name: Remote Data Collector (6h)
+name: Remote Data Collector (6h) - JSON + Database
 
 on:
   schedule:
@@ -13,14 +13,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install deps
+          
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install requests
+          
       - name: Export secret token
         env:
           ACTION_TOKEN: ${{ secrets.FFD_API_KEY }}
@@ -31,17 +34,64 @@ jobs:
           else
             echo "No FFD_API_KEY secret configured; collector will likely skip.";
           fi
-      - name: Run collector (resilient)
+          
+      - name: Restore database from previous run
+        run: |
+          if [ -f hydro_history.db ]; then
+            echo "Database exists ($(stat -c%s hydro_history.db) bytes)"
+          else
+            echo "No existing database - will create new one"
+          fi
+          
+      - name: Run enhanced collector (JSON + Database)
         env:
           FFD_API_KEY: ${{ env.FFD_API_KEY }}
         run: |
+          echo "Starting data collection with database support..."
           python remote_collector.py || echo "Collector script signaled non-zero; continuing (graceful)."
-      - name: Commit latest.json
+          
+      - name: Check collection results
         run: |
+          echo "=== Collection Results ==="
           if [ -f latest.json ]; then
-            git config user.name 'github-actions'
-            git config user.email 'actions@github.com'
+            echo "✅ latest.json created/updated"
+            echo "   Size: $(stat -c%s latest.json) bytes"
+            echo "   Content preview:"
+            head -n 10 latest.json
+          else
+            echo "❌ latest.json not found"
+          fi
+          
+          if [ -f hydro_history.db ]; then
+            echo "✅ Database exists"
+            echo "   Size: $(stat -c%s hydro_history.db) bytes"
+            # Count records in database using SQLite
+            echo "   Record count: $(sqlite3 hydro_history.db 'SELECT COUNT(*) FROM telemetry_history;' 2>/dev/null || echo 'Cannot query')"
+          else
+            echo "❌ Database not found"
+          fi
+          
+      - name: Commit both JSON and Database
+        run: |
+          git config user.name 'github-actions'
+          git config user.email 'actions@github.com'
+          
+          # Add files that exist
+          if [ -f latest.json ]; then
             git add latest.json
-            git commit -m "chore: update latest dataset $(date -u +'%Y-%m-%dT%H:%M:%SZ')" || echo 'No changes'
-            git push
+            echo "Added latest.json to commit"
+          fi
+          
+          if [ -f hydro_history.db ]; then
+            git add hydro_history.db
+            echo "Added hydro_history.db to commit"
+          fi
+          
+          # Only commit if there are changes
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: update dataset & database $(date -u +'%Y-%m-%dT%H:%M:%SZ')" || echo 'Commit failed'
+            git push || echo 'Push failed'
+            echo "Successfully committed and pushed updates"
           fi

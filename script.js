@@ -49,13 +49,18 @@ function formatValue(value) {
     return isNaN(num) ? 'N/A' : num.toLocaleString('en-US');
 }
 
-async function fetchHistoricalSeries(name, hours = 24) {
+// UPDATED: Request 7 days of historical data instead of 24 hours
+async function fetchHistoricalSeries(name, days = 7) {
     try {
-        const res = await fetch(`http://localhost:5000/api/history?name=${encodeURIComponent(name)}&hours=${hours}`);
+        // Use days parameter instead of hours
+        const res = await fetch(`http://localhost:5000/api/history?name=${encodeURIComponent(name)}&days=${days}`);
         if (!res.ok) throw new Error('history status');
         const data = await res.json();
         if (!data.success) throw new Error('history payload');
-        if (data.inflow.length === 0 && data.outflow.length === 0) return null; // first run fallback
+        if (data.inflow.length === 0 && data.outflow.length === 0) return null;
+        
+        console.log(`📊 Historical data for ${name}: ${data.points} data points over ${days} days`);
+        
         return {
             inflow: data.inflow.map(p => ({ x: new Date(p.x), y: p.y })),
             outflow: data.outflow.map(p => ({ x: new Date(p.x), y: p.y }))
@@ -66,7 +71,30 @@ async function fetchHistoricalSeries(name, hours = 24) {
     }
 }
 
-function generateSyntheticSeries(currentValue, hours = 24) {
+// NEW: Check database storage status for debugging
+async function checkStorageStatus() {
+    try {
+        const res = await fetch('http://localhost:5000/api/storage-status');
+        const data = await res.json();
+        console.log('📁 Database Storage Status:', data);
+        
+        if (data.success) {
+            const hours = data.hours_since_last_storage;
+            const nextDue = new Date(data.next_storage_due);
+            console.log(`⏰ Last stored: ${hours?.toFixed(1) || 'Unknown'} hours ago`);
+            console.log(`⏰ Next storage due: ${nextDue.toLocaleString()}`);
+            console.log(`📊 Total records: ${data.total_records}`);
+        }
+        
+        return data;
+    } catch (e) {
+        console.warn('Could not check storage status:', e);
+        return null;
+    }
+}
+
+// UPDATED: Generate synthetic data for 7 days instead of 24 hours
+function generateSyntheticSeries(currentValue, hours = 168) { // 7 days = 168 hours
     const data = [];
     const now = new Date();
     const value = parseFloat(String(currentValue).replace(/,/g, '')) || 50000;
@@ -117,8 +145,8 @@ function getStatusClass(key, value) {
     return 'normal';
 }
 
-// Generate historical data for charts
-function generateHistoricalData(currentValue, hours = 24) {
+// UPDATED: Generate historical data for 7 days (168 hours)
+function generateHistoricalData(currentValue, hours = 168) {
     const data = [];
     const now = new Date();
     const value = parseFloat(String(currentValue).replace(/,/g, '')) || 50000;
@@ -134,6 +162,7 @@ function generateHistoricalData(currentValue, hours = 24) {
     
     return data;
 }
+
 // Create professional chart
 function createChart(containerId, name, parameter, value, unit) {
     const container = document.getElementById(containerId);
@@ -194,7 +223,8 @@ function createChart(containerId, name, parameter, value, unit) {
                     type: 'time',
                     time: {
                         displayFormats: {
-                            hour: 'HH:mm'
+                            hour: 'HH:mm',
+                            day: 'MMM dd'
                         }
                     },
                     grid: {
@@ -430,7 +460,8 @@ function displayHeadworks() {
             html += '</div></div>';
         });
         container.innerHTML = html;
-        // Sort rivers with OTHER at the bottom for chart creation
+        
+        // UPDATED: Create charts with 7 days of data
         const sortedRiversForCharts = Object.keys(groups).sort((a, b) => {
             if (a === 'OTHER') return 1;
             if (b === 'OTHER') return -1;
@@ -442,9 +473,12 @@ function displayHeadworks() {
                 const chartId = `chart_headworks_${river}_${idx}`;
                 const inflowValue = parseFloat(String(item.inflow_discharge || 0).replace(/,/g, ''));
                 const outflowValue = parseFloat(String(item.outflow_discharge || 0).replace(/,/g, ''));
-                const history = await fetchHistoricalSeries(item.name, 24);
+                
+                // Request 7 days of historical data
+                const history = await fetchHistoricalSeries(item.name, 7);
                 const inflowSeries = history?.inflow || generateSyntheticSeries(inflowValue);
                 const outflowSeries = history?.outflow || generateSyntheticSeries(outflowValue);
+                
                 const chart = createInflowOutflowChart(chartId, item.name, inflowSeries, outflowSeries);
                 if (chart) chartsInstances[chartId] = chart;
             });
@@ -467,16 +501,19 @@ function displayHeadworks() {
     }
 }
 
-// Create all charts for a section
+// UPDATED: Create all charts with 7 days of historical data
 async function createAllCharts(data, sectionType) {
     for (let idx = 0; idx < data.length; idx++) {
         const item = data[idx];
         const chartId = `chart_${sectionType}_${idx}`;
         const inflowValue = parseFloat(String(item.inflow_discharge || 0).replace(/,/g, ''));
         const outflowValue = parseFloat(String(item.outflow_discharge || 0).replace(/,/g, ''));
-        const history = await fetchHistoricalSeries(item.name, 24);
+        
+        // Request 7 days of historical data
+        const history = await fetchHistoricalSeries(item.name, 7);
         const inflowSeries = history?.inflow || generateSyntheticSeries(inflowValue);
         const outflowSeries = history?.outflow || generateSyntheticSeries(outflowValue);
+        
         const chart = createInflowOutflowChart(chartId, item.name, inflowSeries, outflowSeries);
         if (chart) chartsInstances[chartId] = chart;
     }
@@ -672,11 +709,16 @@ function createInflowOutflowChart(containerId, name, inflowSeries, outflowSeries
             scales: {
                 x: {
                     type: 'time',
-                    time: { displayFormats: { hour: 'HH:mm' } },
+                    time: { 
+                        displayFormats: { 
+                            hour: 'HH:mm',
+                            day: 'MMM dd'
+                        }
+                    },
                     grid: { color: colors.gray[200], drawTicks: false },
                     border: { display: false },
                     ticks: {
-                        maxTicksLimit: 6,
+                        maxTicksLimit: 8, // Increased for 7-day view
                         color: colors.gray[500],
                         font: { size: 10 }
                     }
@@ -697,8 +739,6 @@ function createInflowOutflowChart(containerId, name, inflowSeries, outflowSeries
     return chart;
 }
 
-
-
 // Update statistics overview
 function updateStatistics() {
     // Only update the dam and headwork counts now
@@ -709,7 +749,7 @@ function updateStatistics() {
     document.getElementById('total-headworks').textContent = headworksCount;
 }
 
-// Main refresh function
+// UPDATED: Main refresh function with storage status logging
 async function refreshAllData() {
     if (isRefreshing) return;
     
@@ -723,6 +763,9 @@ async function refreshAllData() {
         }
         
         console.log('Starting data refresh...');
+        
+        // Check storage status before refresh
+        await checkStorageStatus();
         
         // Destroy existing charts
         Object.values(chartsInstances).forEach(chart => chart.destroy());
@@ -785,11 +828,11 @@ function updateStatus(isOnline) {
     }
 }
 
-// Auto-sync cloud data when dashboard loads
+// UPDATED: Auto-sync cloud data function name changed
 async function autoSyncCloudData() {
     try {
         console.log('🔄 Checking for cloud data updates...');
-        const response = await fetch('http://localhost:5000/api/sync-cloud-data');
+        const response = await fetch('http://localhost:5000/api/sync-remote');
         
         if (response.ok) {
             const result = await response.json();
@@ -806,9 +849,33 @@ async function autoSyncCloudData() {
     return false;
 }
 
-// Initialize dashboard
+// NEW: Show storage information in console for debugging
+async function showStorageInfo() {
+    const status = await checkStorageStatus();
+    if (status && status.success) {
+        console.group('📊 Database Storage Information');
+        console.log(`Total Records: ${status.total_records}`);
+        console.log(`Last Stored: ${status.last_stored ? new Date(status.last_stored).toLocaleString() : 'Never'}`);
+        console.log(`Hours Since Last: ${status.hours_since_last_storage?.toFixed(1) || 'N/A'}`);
+        console.log(`Next Storage Due: ${status.next_storage_due ? new Date(status.next_storage_due).toLocaleString() : 'N/A'}`);
+        console.log(`Should Store Now: ${status.should_store_now ? 'Yes' : 'No'}`);
+        
+        if (status.timestamp_counts?.length > 0) {
+            console.log('Recent Storage Events:');
+            status.timestamp_counts.forEach((item, idx) => {
+                console.log(`  ${idx + 1}. ${new Date(item.timestamp).toLocaleString()} - ${item.count} records`);
+            });
+        }
+        console.groupEnd();
+    }
+}
+
+// UPDATED: Initialize dashboard with storage monitoring
 document.addEventListener('DOMContentLoaded', async function() {
     console.log('Modern professional dashboard initializing...');
+    
+    // Show storage information on startup
+    await showStorageInfo();
     
     // Try to sync cloud data first
     await autoSyncCloudData();
@@ -832,6 +899,9 @@ document.addEventListener('DOMContentLoaded', async function() {
     
     // Auto-sync cloud data every 30 minutes
     setInterval(autoSyncCloudData, 30 * 60 * 1000);
+    
+    // Check storage status every 15 minutes for debugging
+    setInterval(showStorageInfo, 15 * 60 * 1000);
     
     console.log('Modern professional dashboard initialized successfully');
 });

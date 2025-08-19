@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
-"""Remote collector script (resilient).
+"""Remote collector script (resilient) with database support.
 Primary attempt: public endpoints ffd.gov.pk/api/dams & /api/headworks.
 Fallback: pm-dashboard POST endpoint (requires API key) -> derive dams & headworks.
 Graceful behaviour: if all attempts fail (DNS / network), exit 0 without updating file (prevents red workflow) and print SKIP.
 
+NEW: Also updates SQLite database directly (same structure as Flask app)
+
 Environment variables:
   FFD_API_KEY  (optional) API key for fallback endpoint https://ffd.pmd.gov.pk/api/pm-dashboard
   MAX_ATTEMPTS (optional) retry attempts for each fetch (default 5)
+  DB_PATH      (optional) path to SQLite database (default: hydro_history.db)
 """
 
-import json, sys, requests, datetime, time, os, socket
+import json, sys, requests, datetime, time, os, socket, sqlite3
 from requests.exceptions import RequestException
+from threading import Lock
 
 FFD_DAMS = 'https://ffd.gov.pk/api/dams'
 FFD_HEADWORKS = 'https://ffd.gov.pk/api/headworks'
@@ -19,8 +23,108 @@ PM_DASHBOARD = 'https://ffd.pmd.gov.pk/api/pm-dashboard'
 OUT_FILE = 'latest.json'
 API_KEY = os.environ.get('FFD_API_KEY', '').strip()
 MAX_ATTEMPTS = int(os.environ.get('MAX_ATTEMPTS', '5'))
+DB_PATH = os.environ.get('DB_PATH', 'hydro_history.db')
 
 UA = {'User-Agent': 'HybridHydroCollector/1.1'}
+DB_LOCK = Lock()
+
+def init_db():
+    """Initialize database with same structure as Flask app"""
+    with DB_LOCK:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS telemetry_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                type TEXT NOT NULL,
+                inflow_discharge REAL,
+                outflow_discharge REAL,
+                reservoir_level REAL,
+                storage REAL,
+                status TEXT,
+                inflow_trend TEXT,
+                outflow_trend TEXT,
+                recorded_at TEXT,
+                fetched_at TEXT NOT NULL,
+                UNIQUE(name, type, fetched_at)
+            )
+        """)
+        conn.commit()
+        conn.close()
+        print(f'[DB] Database initialized at {DB_PATH}')
+
+def parse_number(value):
+    """Parse numeric values safely (same as Flask app)"""
+    if value is None:
+        return None
+    try:
+        if isinstance(value, (int, float)):
+            return float(value)
+        value = str(value).replace(',', '').strip()
+        return float(value) if value else None
+    except Exception:
+        return None
+
+def store_to_database(dams_data, headworks_data):
+    """Store data to SQLite database (same structure as Flask app)"""
+    if not dams_data.get('dams') and not headworks_data.get('headworks'):
+        print('[DB] No data to store to database')
+        return
+    
+    with DB_LOCK:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        fetched_at = datetime.datetime.utcnow().isoformat()
+        
+        # Store dams
+        dam_rows = []
+        for dam in dams_data.get('dams', []):
+            dam_rows.append((
+                dam.get('name', '').strip(),
+                'DAM',
+                parse_number(dam.get('inflow_discharge')),
+                parse_number(dam.get('outflow_discharge')),
+                parse_number(dam.get('reservoir_level')),
+                parse_number(dam.get('storage')),
+                dam.get('status'),
+                dam.get('inflow_trend'),
+                dam.get('outflow_trend'),
+                dam.get('recording_time'),
+                fetched_at
+            ))
+        
+        # Store headworks
+        headwork_rows = []
+        for headwork in headworks_data.get('headworks', []):
+            headwork_rows.append((
+                headwork.get('name', '').strip(),
+                'HEADWORK',
+                parse_number(headwork.get('inflow_discharge')),
+                parse_number(headwork.get('outflow_discharge')),
+                parse_number(headwork.get('reservoir_level')),
+                parse_number(headwork.get('storage')),
+                headwork.get('status'),
+                headwork.get('inflow_trend'),
+                headwork.get('outflow_trend'),
+                headwork.get('recording_time'),
+                fetched_at
+            ))
+        
+        all_rows = dam_rows + headwork_rows
+        if all_rows:
+            cur.executemany("""
+                INSERT OR IGNORE INTO telemetry_history (
+                    name, type, inflow_discharge, outflow_discharge, reservoir_level, storage, status,
+                    inflow_trend, outflow_trend, recorded_at, fetched_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            """, all_rows)
+            
+            conn.commit()
+            rows_affected = cur.rowcount
+            print(f'[DB] Stored {len(dam_rows)} dams, {len(headwork_rows)} headworks ({rows_affected} new records)')
+        
+        conn.close()
 
 def retry_fetch_json(method, url, **kwargs):
     """Generic retry wrapper with DNS specific notes."""
@@ -74,7 +178,9 @@ def fetch_via_dashboard():
     dams, headworks = categorize_from_telemetries(data['data'])
     return {'dams': dams['dams']}, {'headworks': headworks['headworks']}
 
-def write_payload(dams, headworks):
+def write_payload_and_db(dams, headworks):
+    """Write both JSON file and database"""
+    # Write JSON file
     payload = {
         'generated_at': datetime.datetime.utcnow().isoformat() + 'Z',
         'dams': dams,              # {"dams": [...]}
@@ -82,7 +188,13 @@ def write_payload(dams, headworks):
     }
     with open(OUT_FILE, 'w', encoding='utf-8') as f:
         json.dump(payload, f, ensure_ascii=False)
-    print(f'[OK] Wrote {OUT_FILE}: dams={len(dams.get("dams", []))} headworks={len(headworks.get("headworks", []))}')
+    print(f'[JSON] Wrote {OUT_FILE}: dams={len(dams.get("dams", []))} headworks={len(headworks.get("headworks", []))}')
+    
+    # Store to database
+    try:
+        store_to_database(dams, headworks)
+    except Exception as db_err:
+        print(f'[DB-WARN] Database storage failed: {db_err}. JSON file still created.')
 
 def write_placeholder(reason):
     """Create a placeholder latest.json so the file exists for the dashboard on first run."""
@@ -101,13 +213,19 @@ def write_placeholder(reason):
     print(f'[OK] Wrote placeholder {OUT_FILE} (no data this run).')
 
 def main():
+    # Initialize database
+    try:
+        init_db()
+    except Exception as db_init_err:
+        print(f'[DB-WARN] Database initialization failed: {db_init_err}. Continuing with JSON-only mode.')
+    
     try:
         # Phase 1: public endpoints
         try:
             print('[INFO] Trying public endpoints (ffd.gov.pk)...', flush=True)
             dams, headworks = fetch_public_split()
-            write_payload(dams, headworks)
-            print('[DONE] Collected via public endpoints.', flush=True)
+            write_payload_and_db(dams, headworks)
+            print('[DONE] Collected via public endpoints (JSON + DB updated).', flush=True)
             return 0
         except Exception as pub_err:
             print(f'[WARN] Public endpoints failed: {pub_err}', flush=True)
@@ -116,8 +234,8 @@ def main():
         try:
             print('[INFO] Trying fallback pm-dashboard endpoint...', flush=True)
             dams, headworks = fetch_via_dashboard()
-            write_payload(dams, headworks)
-            print('[DONE] Collected via fallback dashboard.', flush=True)
+            write_payload_and_db(dams, headworks)
+            print('[DONE] Collected via fallback dashboard (JSON + DB updated).', flush=True)
             return 0
         except Exception as dash_err:
             print(f'[WARN] Fallback dashboard failed: {dash_err}', flush=True)

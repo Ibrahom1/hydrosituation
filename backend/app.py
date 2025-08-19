@@ -92,9 +92,34 @@ def parse_number(value):
     except Exception:
         return None
 
-def store_history(items, item_type):
-    if not items:
+def should_store_data():
+    """Only store data every 6 hours to keep clean intervals"""
+    with DB_LOCK:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        
+        # Get the latest stored timestamp
+        cur.execute("""
+            SELECT MAX(fetched_at) FROM telemetry_history
+        """)
+        result = cur.fetchone()
+        conn.close()
+        
+        if not result[0]:
+            return True  # No data exists, store first batch
+        
+        last_stored = datetime.fromisoformat(result[0])
+        time_diff = datetime.utcnow() - last_stored
+        
+        # Only store if 6+ hours have passed
+        return time_diff >= timedelta(hours=6)
+
+def store_history_clean(items, item_type):
+    """Store history only if 6+ hours have passed since last storage"""
+    if not items or not should_store_data():
+        logging.info(f"Skipping storage - not yet 6 hours since last storage")
         return
+        
     with DB_LOCK:
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
@@ -121,10 +146,17 @@ def store_history(items, item_type):
             ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
         """, rows)
         conn.commit()
+        logging.info(f"Stored {len(rows)} {item_type} records at {fetched_at}")
         conn.close()
 
-def fetch_history(name, hours=24):
-    cutoff = datetime.utcnow() - timedelta(hours=hours)
+# Legacy function for backwards compatibility
+def store_history(items, item_type):
+    """Legacy function - redirects to clean storage"""
+    store_history_clean(items, item_type)
+
+def fetch_history_extended(name, days=7):
+    """Fetch history for multiple days instead of just 24 hours"""
+    cutoff = datetime.utcnow() - timedelta(days=days)
     with DB_LOCK:
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
@@ -136,6 +168,7 @@ def fetch_history(name, hours=24):
         """, (name.upper().strip(), cutoff.isoformat()))
         rows = cur.fetchall()
         conn.close()
+    
     inflow_series = []
     outflow_series = []
     for inflow, outflow, ts in rows:
@@ -143,7 +176,14 @@ def fetch_history(name, hours=24):
             inflow_series.append({'x': ts, 'y': inflow})
         if outflow is not None:
             outflow_series.append({'x': ts, 'y': outflow})
+    
     return inflow_series, outflow_series
+
+# Legacy function for backwards compatibility
+def fetch_history(name, hours=24):
+    """Legacy function - converts hours to days"""
+    days = max(1, hours // 24)
+    return fetch_history_extended(name, days)
 
 # Add CORS headers to all responses
 @app.after_request
@@ -191,9 +231,13 @@ def categorize_headworks_by_river(headworks):
     
     return river_groups
 
-def cache_and_store(dams, headworks, telemetries):
-    store_history(dams, 'DAM')
-    store_history(headworks, 'HEADWORK')
+def cache_and_store_clean(dams, headworks, telemetries):
+    """Updated cache function that only stores every 6 hours"""
+    # Only store to database every 6 hours
+    store_history_clean(dams, 'DAM')
+    store_history_clean(headworks, 'HEADWORK')
+    
+    # Always update in-memory cache for API responses
     LAST_CACHE['data'] = {
         'dams': dams,
         'headworks': headworks,
@@ -202,6 +246,11 @@ def cache_and_store(dams, headworks, telemetries):
         'last_updated': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
     }
     LAST_CACHE['fetched_at'] = datetime.utcnow()
+
+# Legacy function for backwards compatibility
+def cache_and_store(dams, headworks, telemetries):
+    """Legacy function - redirects to clean cache and store"""
+    cache_and_store_clean(dams, headworks, telemetries)
 
 def needs_refresh(max_age_minutes=10):
     if LAST_CACHE['fetched_at'] is None:
@@ -244,23 +293,9 @@ def fetch_remote_telemetries():
                 dams.append(item)
             else:
                 headworks.append(item)
-    cache_and_store(dams, headworks, telemetries)
-    return LAST_CACHE['data']
-    dams = []
-    headworks = []
-    for item in telemetries:
-        item_type = item.get('type', '').lower()
-        name = item.get('name', '')
-        if 'dam' in item_type or 'reservoir' in item_type or any(dam_keyword in name.lower() for dam_keyword in ['dam', 'reservoir', 'tarbela', 'mangla', 'chashma']):
-            dams.append(item)
-        elif 'headwork' in item_type or 'barrage' in item_type or any(hw_keyword in name.lower() for hw_keyword in ['headwork', 'barrage', 'weir']):
-            headworks.append(item)
-        else:
-            if item.get('reservoir_level') or item.get('storage'):
-                dams.append(item)
-            else:
-                headworks.append(item)
-    cache_and_store(dams, headworks, telemetries)
+    
+    # Use the clean cache function
+    cache_and_store_clean(dams, headworks, telemetries)
     return LAST_CACHE['data']
 
 def get_cached_or_fetch():
@@ -409,7 +444,7 @@ def apply_remote_dataset(payload):
             store_telemetry_data(conn, {'dams': dams_items}, {'headworks': headworks_items})
             conn.close()
         # Update in-memory cache if newer
-        cache_and_store(dams_items, headworks_items, dams_items + headworks_items)
+        cache_and_store_clean(dams_items, headworks_items, dams_items + headworks_items)
         return True, f"Applied remote dataset with {len(dams_items)} dams & {len(headworks_items)} headworks"
     except Exception as e:
         return False, str(e)
@@ -501,17 +536,80 @@ def get_ffd_headworks():
 @app.route('/api/history')
 def get_history():
     name = request.args.get('name')
-    hours = int(request.args.get('hours', 24))
+    days = int(request.args.get('days', 7))  # Default to 7 days instead of 24 hours
+    hours = int(request.args.get('hours', days * 24))  # Backwards compatibility
+    
     if not name:
         return jsonify({'success': False, 'error': 'Missing name parameter'}), 400
-    inflow_series, outflow_series = fetch_history(name, hours)
+    
+    # Use days if provided, otherwise convert hours to days
+    if request.args.get('days'):
+        inflow_series, outflow_series = fetch_history_extended(name, days)
+        return jsonify({
+            'success': True,
+            'name': name,
+            'days': days,
+            'inflow': inflow_series,
+            'outflow': outflow_series,
+            'points': max(len(inflow_series), len(outflow_series))
+        })
+    else:
+        # Legacy hours-based request
+        inflow_series, outflow_series = fetch_history(name, hours)
+        return jsonify({
+            'success': True,
+            'name': name,
+            'hours': hours,
+            'inflow': inflow_series,
+            'outflow': outflow_series,
+            'points': max(len(inflow_series), len(outflow_series))
+        })
+
+@app.route('/api/storage-status')
+def storage_status():
+    """Check when data was last stored and storage status"""
+    with DB_LOCK:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        
+        # Get latest storage time
+        cur.execute("SELECT MAX(fetched_at) FROM telemetry_history")
+        last_stored = cur.fetchone()[0]
+        
+        # Get total record count
+        cur.execute("SELECT COUNT(*) FROM telemetry_history")
+        total_records = cur.fetchone()[0]
+        
+        # Get unique timestamps (should be every 6 hours)
+        cur.execute("SELECT DISTINCT fetched_at FROM telemetry_history ORDER BY fetched_at DESC LIMIT 10")
+        recent_timestamps = [row[0] for row in cur.fetchall()]
+        
+        # Get records per timestamp to check for clean storage
+        cur.execute("""
+            SELECT fetched_at, COUNT(*) as record_count 
+            FROM telemetry_history 
+            GROUP BY fetched_at 
+            ORDER BY fetched_at DESC 
+            LIMIT 5
+        """)
+        timestamp_counts = [{'timestamp': row[0], 'count': row[1]} for row in cur.fetchall()]
+        
+        conn.close()
+    
+    next_storage_time = None
+    if last_stored:
+        last_dt = datetime.fromisoformat(last_stored)
+        next_storage_time = (last_dt + timedelta(hours=6)).isoformat()
+    
     return jsonify({
         'success': True,
-        'name': name,
-        'hours': hours,
-        'inflow': inflow_series,
-        'outflow': outflow_series,
-        'points': max(len(inflow_series), len(outflow_series))
+        'last_stored': last_stored,
+        'next_storage_due': next_storage_time,
+        'total_records': total_records,
+        'recent_timestamps': recent_timestamps,
+        'timestamp_counts': timestamp_counts,
+        'should_store_now': should_store_data(),
+        'hours_since_last_storage': (datetime.utcnow() - datetime.fromisoformat(last_stored)).total_seconds() / 3600 if last_stored else None
     })
 
 # ---- Scheduler (4x per day, every 6 hours) ----
@@ -540,7 +638,8 @@ if __name__ == '__main__':
     print("  - /api/ffd-telemetries")
     print("  - /api/ffd-dams")
     print("  - /api/ffd-headworks")
-    print("  - /api/history?name=Kalabagh&hours=24")
+    print("  - /api/history?name=Kalabagh&days=7")
+    print("  - /api/storage-status")
     
     # Get port from environment or use 5000 locally
     import os
