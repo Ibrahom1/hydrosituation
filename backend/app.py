@@ -49,18 +49,23 @@ RIVER_HEADWORKS_MAP = {
     ]
 }
 
-# ---- Historical Data Storage (SQLite) ----
-DB_PATH = 'hydro_history.db'
+# ---- Historical Data Storage (SQLite) - READ ONLY ----
+DB_PATH = '../hydro_history.db'
 # Optional remote JSON dataset URL (produced by remote collector running every 6h)
-# You can override via environment variable REMOTE_DATA_URL
-REMOTE_DATA_URL = os.environ.get('REMOTE_DATA_URL', '').strip()  # e.g. https://raw.githubusercontent.com/youruser/hydro-dataset/main/latest.json
+REMOTE_DATA_URL = os.environ.get('REMOTE_DATA_URL', '').strip()
 DB_LOCK = Lock()
 LAST_CACHE = {'data': None, 'fetched_at': None}
 
 def init_db():
+    """Initialize database structure if it doesn't exist (read-only app)"""
+    if not os.path.exists(DB_PATH):
+        logging.warning(f"Database not found at {DB_PATH}. Remote collector should create it.")
+        return
+    
     with DB_LOCK:
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
+        # Only create table if it doesn't exist (non-destructive)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS telemetry_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -80,8 +85,10 @@ def init_db():
         """)
         conn.commit()
         conn.close()
+        logging.info(f"Database verified at {DB_PATH}")
 
 def parse_number(value):
+    """Parse numeric values safely"""
     if value is None:
         return None
     try:
@@ -92,82 +99,28 @@ def parse_number(value):
     except Exception:
         return None
 
-def should_store_data():
-    """Only store data every 6 hours to keep clean intervals"""
-    with DB_LOCK:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        
-        # Get the latest stored timestamp
-        cur.execute("""
-            SELECT MAX(fetched_at) FROM telemetry_history
-        """)
-        result = cur.fetchone()
-        conn.close()
-        
-        if not result[0]:
-            return True  # No data exists, store first batch
-        
-        last_stored = datetime.fromisoformat(result[0])
-        time_diff = datetime.utcnow() - last_stored
-        
-        # Only store if 6+ hours have passed
-        return time_diff >= timedelta(hours=6)
-
-def store_history_clean(items, item_type):
-    """Store history only if 6+ hours have passed since last storage"""
-    if not items or not should_store_data():
-        logging.info(f"Skipping storage - not yet 6 hours since last storage")
-        return
-        
-    with DB_LOCK:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        fetched_at = datetime.utcnow().isoformat()
-        rows = []
-        for item in items:
-            rows.append((
-                item.get('name','').strip(),
-                item_type,
-                parse_number(item.get('inflow_discharge')),
-                parse_number(item.get('outflow_discharge')),
-                parse_number(item.get('reservoir_level')),
-                parse_number(item.get('storage')),
-                item.get('status'),
-                item.get('inflow_trend'),
-                item.get('outflow_trend'),
-                item.get('recording_time'),
-                fetched_at
-            ))
-        cur.executemany("""
-            INSERT OR IGNORE INTO telemetry_history (
-                name, type, inflow_discharge, outflow_discharge, reservoir_level, storage, status,
-                inflow_trend, outflow_trend, recorded_at, fetched_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
-        """, rows)
-        conn.commit()
-        logging.info(f"Stored {len(rows)} {item_type} records at {fetched_at}")
-        conn.close()
-
-# Legacy function for backwards compatibility
-def store_history(items, item_type):
-    """Legacy function - redirects to clean storage"""
-    store_history_clean(items, item_type)
-
 def fetch_history_extended(name, days=7):
-    """Fetch history for multiple days instead of just 24 hours"""
+    """Fetch history for multiple days - READ ONLY"""
+    if not os.path.exists(DB_PATH):
+        logging.warning(f"Database not found at {DB_PATH}")
+        return [], []
+    
     cutoff = datetime.utcnow() - timedelta(days=days)
     with DB_LOCK:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT inflow_discharge, outflow_discharge, fetched_at
-            FROM telemetry_history
-            WHERE UPPER(name)=? AND fetched_at >= ?
-            ORDER BY fetched_at ASC
-        """, (name.upper().strip(), cutoff.isoformat()))
-        rows = cur.fetchall()
-        conn.close()
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT inflow_discharge, outflow_discharge, fetched_at
+                FROM telemetry_history
+                WHERE UPPER(name)=? AND fetched_at >= ?
+                ORDER BY fetched_at ASC
+            """, (name.upper().strip(), cutoff.isoformat()))
+            rows = cur.fetchall()
+            conn.close()
+        except sqlite3.Error as e:
+            logging.error(f"Database error: {e}")
+            return [], []
     
     inflow_series = []
     outflow_series = []
@@ -179,7 +132,6 @@ def fetch_history_extended(name, days=7):
     
     return inflow_series, outflow_series
 
-# Legacy function for backwards compatibility
 def fetch_history(name, hours=24):
     """Legacy function - converts hours to days"""
     days = max(1, hours // 24)
@@ -231,13 +183,8 @@ def categorize_headworks_by_river(headworks):
     
     return river_groups
 
-def cache_and_store_clean(dams, headworks, telemetries):
-    """Updated cache function that only stores every 6 hours"""
-    # Only store to database every 6 hours
-    store_history_clean(dams, 'DAM')
-    store_history_clean(headworks, 'HEADWORK')
-    
-    # Always update in-memory cache for API responses
+def cache_only(dams, headworks, telemetries):
+    """Cache data in memory only - NO database storage (remote collector handles DB)"""
     LAST_CACHE['data'] = {
         'dams': dams,
         'headworks': headworks,
@@ -246,19 +193,17 @@ def cache_and_store_clean(dams, headworks, telemetries):
         'last_updated': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
     }
     LAST_CACHE['fetched_at'] = datetime.utcnow()
-
-# Legacy function for backwards compatibility
-def cache_and_store(dams, headworks, telemetries):
-    """Legacy function - redirects to clean cache and store"""
-    cache_and_store_clean(dams, headworks, telemetries)
+    logging.info(f"Cached {len(dams)} dams and {len(headworks)} headworks (no DB storage)")
 
 def needs_refresh(max_age_minutes=10):
+    """Check if cache needs refresh"""
     if LAST_CACHE['fetched_at'] is None:
         return True
     return (datetime.utcnow() - LAST_CACHE['fetched_at']) > timedelta(minutes=max_age_minutes)
 
 def fetch_remote_telemetries():
-    logging.info("Fetching FFD telemetries (remote call)...")
+    """Fetch fresh data from FFD API - CACHE ONLY, no database storage"""
+    logging.info("Fetching FFD telemetries (remote call - cache only)...")
     request_data = {"API_KEY": FFD_TOKEN}
     try:
         response = requests.post(FFD_API_URL, data=request_data, timeout=60)
@@ -279,6 +224,7 @@ def fetch_remote_telemetries():
         logging.error(f"Unexpected error in fetch_remote_telemetries: {e}")
         raise RuntimeError(f"Data processing error: {str(e)}")
     
+    # Classify data into dams and headworks
     dams = []
     headworks = []
     for item in telemetries:
@@ -294,11 +240,12 @@ def fetch_remote_telemetries():
             else:
                 headworks.append(item)
     
-    # Use the clean cache function
-    cache_and_store_clean(dams, headworks, telemetries)
+    # Only cache, don't store to database
+    cache_only(dams, headworks, telemetries)
     return LAST_CACHE['data']
 
 def get_cached_or_fetch():
+    """Get data from cache or fetch fresh - NO database storage"""
     if needs_refresh():
         try:
             return fetch_remote_telemetries()
@@ -322,113 +269,12 @@ def get_cached_or_fetch():
                 return dummy_data
     return LAST_CACHE['data']
 
-@app.route('/')
-def index():
-    return "Hydrological Situation Dashboard API - FFD Telemetries Only"
-
-@app.route('/api/collect-data')
-def collect_data():
-    """Endpoint for cron-job.org to trigger data collection every 6 hours"""
-    try:
-        print(f"🚀 Data collection triggered at {datetime.now()}")
-        
-        # Fetch from FFD APIs
-        print("📡 Fetching dams data...")
-        dams_response = requests.get('https://ffd.gov.pk/api/dams', timeout=60)
-        
-        print("📡 Fetching headworks data...")
-        headworks_response = requests.get('https://ffd.gov.pk/api/headworks', timeout=60)
-        
-        if dams_response.ok and headworks_response.ok:
-            dams_data = dams_response.json()
-            headworks_data = headworks_response.json()
-            
-            # Store to local database
-            with DB_LOCK:
-                conn = sqlite3.connect(DB_PATH)
-                store_telemetry_data(conn, dams_data, headworks_data)
-                conn.close()
-            
-            dam_count = len(dams_data.get('dams', []))
-            headwork_count = len(headworks_data.get('headworks', []))
-            
-            print(f"✅ Data collected and stored successfully")
-            print(f"   - Dams: {dam_count} items")
-            print(f"   - Headworks: {headwork_count} items")
-            
-            return jsonify({
-                "success": True,
-                "message": "Data collected and stored successfully",
-                "timestamp": datetime.now().isoformat(),
-                "dams_count": dam_count,
-                "headworks_count": headwork_count
-            })
-            
-        else:
-            error_msg = f"API Error: Dams {dams_response.status_code}, Headworks {headworks_response.status_code}"
-            print(f"❌ {error_msg}")
-            return jsonify({
-                "success": False, 
-                "error": error_msg
-            }), 500
-            
-    except Exception as e:
-        error_msg = f"Collection failed: {str(e)}"
-        print(f"❌ {error_msg}")
-        return jsonify({
-            "success": False, 
-            "error": error_msg
-        }), 500
-
-def store_telemetry_data(conn, dams_data, headworks_data):
-    """Store telemetry data from cloud sync"""
-    timestamp = datetime.now().isoformat()
-    
-    # Store dams data
-    for dam in dams_data.get('dams', []):
-        conn.execute('''
-            INSERT OR REPLACE INTO telemetry_history 
-            (name, type, inflow_discharge, outflow_discharge, inflow_trend, outflow_trend, fetched_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            dam.get('name', ''),
-            'dam',
-            dam.get('inflow_discharge', 0),
-            dam.get('outflow_discharge', 0),
-            dam.get('inflow_trend', ''),
-            dam.get('outflow_trend', ''),
-            timestamp
-        ))
-    
-    # Store headworks data
-    for headwork in headworks_data.get('headworks', []):
-        conn.execute('''
-            INSERT OR REPLACE INTO telemetry_history 
-            (name, type, inflow_discharge, outflow_discharge, inflow_trend, outflow_trend, fetched_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            headwork.get('name', ''),
-            'headwork',
-            headwork.get('inflow_discharge', 0),
-            headwork.get('outflow_discharge', 0),
-            headwork.get('inflow_trend', ''),
-            headwork.get('outflow_trend', ''),
-            timestamp
-        ))
-    
-    conn.commit()
-
 def apply_remote_dataset(payload):
-    """Apply a remote dataset JSON structure to local DB/history cache.
-    Expected structure: {
-        "timestamp": str,
-        "dams": {"dams": [...]},
-        "headworks": {"headworks": [...]}  (either raw arrays or wrapped)
-    }
-    """
+    """Apply a remote dataset JSON structure to local cache only"""
     try:
         dams_block = payload.get('dams', {})
         headworks_block = payload.get('headworks', {})
+        
         # Accept both wrapped ({"dams": [...]}) and direct list
         if isinstance(dams_block, dict):
             dams_items = dams_block.get('dams', [])
@@ -439,21 +285,19 @@ def apply_remote_dataset(payload):
         else:
             headworks_items = headworks_block if isinstance(headworks_block, list) else []
 
-        with DB_LOCK:
-            conn = sqlite3.connect(DB_PATH)
-            store_telemetry_data(conn, {'dams': dams_items}, {'headworks': headworks_items})
-            conn.close()
-        # Update in-memory cache if newer
-        cache_and_store_clean(dams_items, headworks_items, dams_items + headworks_items)
-        return True, f"Applied remote dataset with {len(dams_items)} dams & {len(headworks_items)} headworks"
+        # Only update cache, don't store to database
+        cache_only(dams_items, headworks_items, dams_items + headworks_items)
+        return True, f"Applied remote dataset to cache: {len(dams_items)} dams & {len(headworks_items)} headworks"
     except Exception as e:
         return False, str(e)
 
+@app.route('/')
+def index():
+    return "Hydrological Situation Dashboard API - Read-Only Mode (Remote Collector Updates DB)"
+
 @app.route('/api/sync-remote')
 def sync_remote():
-    """Fetch remote JSON dataset (produced by external cron collector) and store locally.
-    Query param 'url' overrides configured REMOTE_DATA_URL for manual testing.
-    """
+    """Fetch remote JSON dataset and apply to cache only"""
     url = request.args.get('url') or REMOTE_DATA_URL
     if not url:
         return jsonify({'success': False, 'error': 'REMOTE_DATA_URL not configured'}), 400
@@ -470,15 +314,19 @@ def sync_remote():
 @app.route('/api/health')
 def health_check():
     """Health check endpoint"""
+    db_exists = os.path.exists(DB_PATH)
     return jsonify({
         'status': 'healthy',
         'timestamp': datetime.now().isoformat(),
-        'service': 'FFD Hydrological Dashboard'
+        'service': 'FFD Hydrological Dashboard (Read-Only)',
+        'database_exists': db_exists,
+        'database_path': DB_PATH,
+        'mode': 'read_only'
     })
 
 @app.route('/api/ffd-telemetries')
 def get_ffd_telemetries():
-    """Return current telemetries (cached) and record new history if refreshed."""
+    """Return current telemetries (cached only)"""
     try:
         data = get_cached_or_fetch()
         return jsonify({
@@ -490,7 +338,8 @@ def get_ffd_telemetries():
             'headworks_count': len(data['headworks']),
             'dams': data['dams'],
             'headworks': data['headworks'],
-            'all_telemetries': data['all_telemetries']
+            'all_telemetries': data['all_telemetries'],
+            'source': 'cache_only'
         })
     except Exception as e:
         logging.error(f"Error getting telemetries: {e}")
@@ -506,7 +355,8 @@ def get_ffd_dams():
             'timestamp': data['timestamp'],
             'last_updated': data['last_updated'],
             'count': len(data['dams']),
-            'dams': data['dams']
+            'dams': data['dams'],
+            'source': 'cache_only'
         })
     except Exception as e:
         logging.error(f"Error getting dam data: {e}")
@@ -527,7 +377,8 @@ def get_ffd_headworks():
             'rivers_count': len(river_groups),
             'headworks': headworks,
             'headworks_by_river': river_groups,
-            'river_summary': {river: len(hw) for river, hw in river_groups.items()}
+            'river_summary': {river: len(hw) for river, hw in river_groups.items()},
+            'source': 'cache_only'
         })
     except Exception as e:
         logging.error(f"Error getting headwork data: {e}")
@@ -535,9 +386,10 @@ def get_ffd_headworks():
 
 @app.route('/api/history')
 def get_history():
+    """Get historical data from database (read-only)"""
     name = request.args.get('name')
-    days = int(request.args.get('days', 7))  # Default to 7 days instead of 24 hours
-    hours = int(request.args.get('hours', days * 24))  # Backwards compatibility
+    days = int(request.args.get('days', 7))
+    hours = int(request.args.get('hours', days * 24))
     
     if not name:
         return jsonify({'success': False, 'error': 'Missing name parameter'}), 400
@@ -551,7 +403,8 @@ def get_history():
             'days': days,
             'inflow': inflow_series,
             'outflow': outflow_series,
-            'points': max(len(inflow_series), len(outflow_series))
+            'points': max(len(inflow_series), len(outflow_series)),
+            'source': 'database_readonly'
         })
     else:
         # Legacy hours-based request
@@ -562,88 +415,97 @@ def get_history():
             'hours': hours,
             'inflow': inflow_series,
             'outflow': outflow_series,
-            'points': max(len(inflow_series), len(outflow_series))
+            'points': max(len(inflow_series), len(outflow_series)),
+            'source': 'database_readonly'
         })
 
 @app.route('/api/storage-status')
 def storage_status():
-    """Check when data was last stored and storage status"""
-    with DB_LOCK:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        
-        # Get latest storage time
-        cur.execute("SELECT MAX(fetched_at) FROM telemetry_history")
-        last_stored = cur.fetchone()[0]
-        
-        # Get total record count
-        cur.execute("SELECT COUNT(*) FROM telemetry_history")
-        total_records = cur.fetchone()[0]
-        
-        # Get unique timestamps (should be every 6 hours)
-        cur.execute("SELECT DISTINCT fetched_at FROM telemetry_history ORDER BY fetched_at DESC LIMIT 10")
-        recent_timestamps = [row[0] for row in cur.fetchall()]
-        
-        # Get records per timestamp to check for clean storage
-        cur.execute("""
-            SELECT fetched_at, COUNT(*) as record_count 
-            FROM telemetry_history 
-            GROUP BY fetched_at 
-            ORDER BY fetched_at DESC 
-            LIMIT 5
-        """)
-        timestamp_counts = [{'timestamp': row[0], 'count': row[1]} for row in cur.fetchall()]
-        
-        conn.close()
+    """Check database storage status (read-only)"""
+    if not os.path.exists(DB_PATH):
+        return jsonify({
+            'success': False,
+            'error': f'Database not found at {DB_PATH}',
+            'message': 'Remote collector should create and update the database'
+        }), 404
     
-    next_storage_time = None
+    with DB_LOCK:
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            
+            # Get latest storage time
+            cur.execute("SELECT MAX(fetched_at) FROM telemetry_history")
+            last_stored = cur.fetchone()[0]
+            
+            # Get total record count
+            cur.execute("SELECT COUNT(*) FROM telemetry_history")
+            total_records = cur.fetchone()[0]
+            
+            # Get unique timestamps (should be every 6 hours)
+            cur.execute("SELECT DISTINCT fetched_at FROM telemetry_history ORDER BY fetched_at DESC LIMIT 10")
+            recent_timestamps = [row[0] for row in cur.fetchall()]
+            
+            # Get records per timestamp
+            cur.execute("""
+                SELECT fetched_at, COUNT(*) as record_count 
+                FROM telemetry_history 
+                GROUP BY fetched_at 
+                ORDER BY fetched_at DESC 
+                LIMIT 5
+            """)
+            timestamp_counts = [{'timestamp': row[0], 'count': row[1]} for row in cur.fetchall()]
+            
+            conn.close()
+        except sqlite3.Error as e:
+            return jsonify({'success': False, 'error': f'Database error: {e}'}), 500
+    
+    next_expected_time = None
     if last_stored:
         last_dt = datetime.fromisoformat(last_stored)
-        next_storage_time = (last_dt + timedelta(hours=6)).isoformat()
+        next_expected_time = (last_dt + timedelta(hours=6)).isoformat()
     
     return jsonify({
         'success': True,
         'last_stored': last_stored,
-        'next_storage_due': next_storage_time,
+        'next_expected': next_expected_time,
         'total_records': total_records,
         'recent_timestamps': recent_timestamps,
         'timestamp_counts': timestamp_counts,
-        'should_store_now': should_store_data(),
-        'hours_since_last_storage': (datetime.utcnow() - datetime.fromisoformat(last_stored)).total_seconds() / 3600 if last_stored else None
+        'hours_since_last': (datetime.utcnow() - datetime.fromisoformat(last_stored)).total_seconds() / 3600 if last_stored else None,
+        'mode': 'read_only',
+        'updater': 'remote_collector'
     })
 
-# ---- Scheduler (4x per day, every 6 hours) ----
-def scheduled_job():
-    try:
-        logging.info('Scheduled fetch start')
-        fetch_remote_telemetries()
-        logging.info('Scheduled fetch complete')
-    except Exception as e:
-        logging.error(f'Scheduled fetch failed: {e}')
-
-def start_scheduler():
-    scheduler = BackgroundScheduler(daemon=True)
-    scheduler.add_job(scheduled_job, 'interval', hours=6, next_run_time=datetime.utcnow())
-    scheduler.start()
-    atexit.register(lambda: scheduler.shutdown(wait=False))
-    logging.info('Scheduler started (6h interval)')
+# ---- NO SCHEDULER - Remote collector handles all updates ----
+# Scheduler removed since remote collector handles all database updates
 
 if __name__ == '__main__':
     print("Starting Hydrological Situation Dashboard API...")
+    print("=== READ-ONLY MODE ===")
+    print("Database updates handled by remote collector")
+    
+    # Verify database path
+    print(f"Database path: {DB_PATH}")
+    print(f"Absolute database path: {os.path.abspath(DB_PATH)}")
+    print(f"Database exists: {os.path.exists(DB_PATH)}")
+    
     init_db()
-    start_scheduler()
-    print("FFD Telemetries Service Only + History + Scheduler")
+    
+    print("FFD Telemetries Service (Read-Only Mode)")
     print("Available endpoints:")
     print("  - /api/health")
     print("  - /api/ffd-telemetries")
-    print("  - /api/ffd-dams")
+    print("  - /api/ffd-dams") 
     print("  - /api/ffd-headworks")
     print("  - /api/history?name=Kalabagh&days=7")
     print("  - /api/storage-status")
+    print("  - /api/sync-remote")
+    print("")
+    print("Database updates: Remote collector only")
+    print("Cache refresh: Every 10 minutes")
     
     # Get port from environment or use 5000 locally
-    import os
     port = int(os.environ.get('PORT', 5000))
     
-    # Disable the reloader explicitly to avoid ImportError with older watchdog versions.
     app.run(debug=True, use_reloader=False, host='0.0.0.0', port=port)
