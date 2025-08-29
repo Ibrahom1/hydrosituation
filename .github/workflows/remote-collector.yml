@@ -1,4 +1,4 @@
-name: Remote Data Collector (6h) - JSON + Database
+name: Remote Data Collector (1h) - JSON + Database
 
 on:
   schedule:
