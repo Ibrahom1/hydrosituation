@@ -67,20 +67,32 @@ def parse_number(value):
         return None
 
 def store_to_database(dams_data, headworks_data):
-    """Store data to SQLite database (same structure as Flask app)"""
     if not dams_data.get('dams') and not headworks_data.get('headworks'):
         print('[DB] No data to store to database')
         return
-    
+
     with DB_LOCK:
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
         fetched_at = datetime.datetime.utcnow().isoformat()
-        
-        # Store dams
-        dam_rows = []
+
+        def has_changed(row):
+            """Check if current telemetry differs from the latest DB record"""
+            cur.execute("""
+                SELECT inflow_discharge, outflow_discharge, reservoir_level, storage,
+                       status, inflow_trend, outflow_trend, recorded_at
+                FROM telemetry_history
+                WHERE name=? AND type=?
+                ORDER BY id DESC LIMIT 1
+            """, (row[0], row[1]))
+            prev = cur.fetchone()
+            return prev != row[2:-1]  # compare values (skip fetched_at)
+
+        all_rows = []
+
+        # dams
         for dam in dams_data.get('dams', []):
-            dam_rows.append((
+            row = (
                 dam.get('name', '').strip(),
                 'DAM',
                 parse_number(dam.get('inflow_discharge')),
@@ -92,12 +104,13 @@ def store_to_database(dams_data, headworks_data):
                 dam.get('outflow_trend'),
                 dam.get('recording_time'),
                 fetched_at
-            ))
-        
-        # Store headworks
-        headwork_rows = []
+            )
+            if has_changed(row):
+                all_rows.append(row)
+
+        # headworks
         for headwork in headworks_data.get('headworks', []):
-            headwork_rows.append((
+            row = (
                 headwork.get('name', '').strip(),
                 'HEADWORK',
                 parse_number(headwork.get('inflow_discharge')),
@@ -109,22 +122,24 @@ def store_to_database(dams_data, headworks_data):
                 headwork.get('outflow_trend'),
                 headwork.get('recording_time'),
                 fetched_at
-            ))
-        
-        all_rows = dam_rows + headwork_rows
+            )
+            if has_changed(row):
+                all_rows.append(row)
+
         if all_rows:
             cur.executemany("""
-                INSERT OR IGNORE INTO telemetry_history (
-                    name, type, inflow_discharge, outflow_discharge, reservoir_level, storage, status,
-                    inflow_trend, outflow_trend, recorded_at, fetched_at
+                INSERT INTO telemetry_history (
+                    name, type, inflow_discharge, outflow_discharge, reservoir_level, storage,
+                    status, inflow_trend, outflow_trend, recorded_at, fetched_at
                 ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
             """, all_rows)
-            
             conn.commit()
-            rows_affected = cur.rowcount
-            print(f'[DB] Stored {len(dam_rows)} dams, {len(headwork_rows)} headworks ({rows_affected} new records)')
-        
+            print(f'[DB] Stored {len(all_rows)} new records')
+        else:
+            print('[DB] No changes detected, skipping insert.')
+
         conn.close()
+
 
 def retry_fetch_json(method, url, **kwargs):
     """Generic retry wrapper with DNS specific notes."""
