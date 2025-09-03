@@ -1896,3 +1896,13 @@ canvas {
         padding: 0.75rem 0.5rem;
     }
 }
+
+/* === Override: Ensure chart-status badges match floodColors in script.js === */
+/* Matches: LOW, MEDIUM, HIGH, VERY_HIGH, EX_HIGH, NORMAL */
+.chart-status.normal { background: #2ecc40 !important; color: #fff !important; border: 2px solid #27ae36 !important; box-shadow: 0 2px 8px rgba(46,204,64,0.15) !important; }
+.chart-status.low { background: #19aec2ff !important; color: #fff !important; border: 2px solid #19aec2ff !important; box-shadow: 0 2px 8px rgba(25,174,194,0.15) !important; }
+.chart-status.medium { background: #0a0edbff !important; color: #fff !important; border: 2px solid #0a0edbff !important; box-shadow: 0 2px 8px rgba(10,14,219,0.15) !important; }
+.chart-status.high { background: #887406ff !important; color: #fff !important; border: 2px solid #887406ff !important; box-shadow: 0 2px 8px rgba(136,116,6,0.15) !important; }
+.chart-status.very-high { background: #632402ff !important; color: #fff !important; border: 2px solid #632402ff !important; box-shadow: 0 2px 8px rgba(99,36,2,0.15) !important; }
+.chart-status.ex-high { background: #dc2626 !important; color: #fff !important; border: 2px solid #dc2626 !important; box-shadow: 0 2px 8px rgba(220,38,38,0.15) !important; }
+

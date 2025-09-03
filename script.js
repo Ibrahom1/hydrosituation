@@ -145,6 +145,23 @@ function getStatusClass(key, value) {
     return 'normal';
 }
 
+// Normalize status strings into safe CSS class names
+function normalizeStatusClass(status) {
+    if (!status) return 'normal';
+    // Convert to string, trim, uppercase for logic, but produce lowercase-hyphen class
+    const s = String(status).trim();
+    // Common normalization rules: spaces/underscores -> hyphens, multiple hyphens collapsed
+    const normalized = s.replace(/\s+/g, '-').replace(/_+/g, '-').replace(/[^a-zA-Z0-9-]/g, '').toLowerCase();
+    // Map some known variants to canonical names
+    if (normalized === 'exceptional' || normalized === 'ex' || normalized === 'ex-high' || normalized === 'exhigh') return 'ex-high';
+    if (normalized === 'very-high' || normalized === 'veryhigh' || normalized === 'vhigh') return 'very-high';
+    if (normalized === 'high' || normalized === 'h') return 'high';
+    if (normalized === 'medium' || normalized === 'med') return 'medium';
+    if (normalized === 'low' || normalized === 'l') return 'low';
+    if (normalized === 'normal' || normalized === 'ok' || normalized === '') return 'normal';
+    return normalized;
+}
+
 // UPDATED: Generate historical data for 7 days (168 hours)
 function generateHistoricalData(currentValue, hours = 168) {
     const data = [];
@@ -314,7 +331,7 @@ function createChartsGrid(data, sectionType) {
         <div class="chart-item">
             <div class="chart-header">
                 <h6 class="chart-title">${item.name}</h6>
-                <span class="chart-status ${status.toLowerCase()}">${status}</span>
+                <span class="chart-status ${normalizeStatusClass(status)}">${status}</span>
             </div>
             <div class="chart-canvas" id="${chartId}"></div>
             <div class="chart-info">
@@ -436,7 +453,10 @@ function displayHeadworks() {
         
         sortedRiversForDisplay.forEach(river => {
             const list = groups[river];
-            html += `<div class="river-section"><div class="river-header"><h4 class="river-title" style="color: black;">${river} River</h4><span class="river-count">${list.length}</span></div><div class="charts-container">`;
+            // Normalize river name: capitalize only the first letter, lowercase the rest
+            const prettyName = river === 'OTHER' ? 'Other Headworks' : (river.charAt(0).toUpperCase() + river.slice(1).toLowerCase() + ' River');
+            const headerLabel = prettyName;
+            html += `<div class="river-section"><div class="river-header"><h4 class="river-title" style="color: black;">${headerLabel}</h4><span class="river-count">${list.length}</span></div><div class="charts-container">`;
             list.forEach((item, idx) => {
                 const chartId = `chart_headworks_${river}_${idx}`;
                 const inflowValue = formatValue(item.inflow_discharge || 0);
@@ -455,7 +475,7 @@ function displayHeadworks() {
                                         outflowTrend.includes('fall') || outflowTrend.includes('falling') ? 'trend-falling' : 'trend-steady';
                 const outflowTrendLabel = item.outflow_trend || 'N/A';
                 
-                html += `<div class="chart-item"><div class="chart-header"><h6 class="chart-title">${item.name}</h6><span class="chart-status ${status.toLowerCase()}">${status}</span></div><div class="chart-canvas" id="${chartId}"></div><div class="chart-info"><div class="flow-values"><div class="flow-item inflow"><div class="flow-label"><i class="fas fa-arrow-down"></i>Inflow</div><div class="flow-value">${inflowValue} cusecs</div><div class="flow-trend ${inflowTrendClass}"><i class="fas fa-chart-line"></i>${inflowTrendLabel}</div></div><div class="flow-item outflow"><div class="flow-label"><i class="fas fa-arrow-up"></i>Outflow</div><div class="flow-value">${outflowValue} cusecs</div><div class="flow-trend ${outflowTrendClass}"><i class="fas fa-chart-line"></i>${outflowTrendLabel}</div></div></div><div class="recording-info"><div class="recording-time"><i class="fas fa-clock"></i><span>Recorded: ${item.recording_time || 'N/A'}</span></div></div></div></div>`;
+                html += `<div class="chart-item"><div class="chart-header"><h6 class="chart-title">${item.name}</h6><span class="chart-status ${normalizeStatusClass(status)}">${status}</span></div><div class="chart-canvas" id="${chartId}"></div><div class="chart-info"><div class="flow-values"><div class="flow-item inflow"><div class="flow-label"><i class="fas fa-arrow-down"></i>Inflow</div><div class="flow-value">${inflowValue} cusecs</div><div class="flow-trend ${inflowTrendClass}"><i class="fas fa-chart-line"></i>${inflowTrendLabel}</div></div><div class="flow-item outflow"><div class="flow-label"><i class="fas fa-arrow-up"></i>Outflow</div><div class="flow-value">${outflowValue} cusecs</div><div class="flow-trend ${outflowTrendClass}"><i class="fas fa-chart-line"></i>${outflowTrendLabel}</div></div></div><div class="recording-info"><div class="recording-time"><i class="fas fa-clock"></i><span>Recorded: ${item.recording_time || 'N/A'}</span></div></div></div></div>`;
             });
             html += '</div></div>';
         });
@@ -493,7 +513,8 @@ function displayHeadworks() {
         });
         
         sortedRiversForTable.forEach(river => {
-            html += `<div class="river-section"><div class="river-header"><h4 class="river-title" style="color: black;">${river} River</h4><span class="river-count">${groups[river].length}</span></div>`;
+            const tableHeaderLabel = river === 'OTHER' ? 'Other Headworks' : (river.charAt(0).toUpperCase() + river.slice(1).toLowerCase() + ' River');
+            html += `<div class="river-section"><div class="river-header"><h4 class="river-title" style="color: black;">${tableHeaderLabel}</h4><span class="river-count">${groups[river].length}</span></div>`;
             html += createDataTable(groups[river], 'headworks');
             html += '</div>';
         });
