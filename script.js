@@ -49,8 +49,8 @@ function formatValue(value) {
     return isNaN(num) ? 'N/A' : num.toLocaleString('en-US');
 }
 
-// UPDATED: Request 7 days of historical data instead of 24 hours
-async function fetchHistoricalSeries(name, days = 7) {
+// UPDATED: Request 15 days of historical data instead of 24 hours
+async function fetchHistoricalSeries(name, days = 15) {
     try {
         // Use days parameter instead of hours
         const res = await fetch(`http://localhost:5000/api/history?name=${encodeURIComponent(name)}&days=${days}`);
@@ -62,13 +62,55 @@ async function fetchHistoricalSeries(name, days = 7) {
         console.log(`📊 Historical data for ${name}: ${data.points} data points over ${days} days`);
         
         return {
-            inflow: data.inflow.map(p => ({ x: new Date(p.x), y: p.y })),
-            outflow: data.outflow.map(p => ({ x: new Date(p.x), y: p.y }))
+            inflow: data.inflow.map(p => ({ 
+                x: parseTimestamp(p.x), 
+                y: p.y,
+                originalTime: p.x // Keep original timestamp for tooltip
+            })),
+            outflow: data.outflow.map(p => ({ 
+                x: parseTimestamp(p.x), 
+                y: p.y,
+                originalTime: p.x // Keep original timestamp for tooltip
+            }))
         };
     } catch (e) {
         console.warn('History fetch failed for', name, e);
         return null;
     }
+}
+
+// Helper function to parse various timestamp formats
+function parseTimestamp(timestamp) {
+    if (!timestamp) return new Date();
+    
+    // If it's already a valid Date object
+    if (timestamp instanceof Date) return timestamp;
+    
+    // If it's in the database format like "19-Aug 06 PST", convert for Chart.js
+    if (typeof timestamp === 'string' && timestamp.includes('PST')) {
+        // Try to convert "19-Aug 06 PST" to a parseable format
+        const match = timestamp.match(/(\d{1,2})-(\w{3})\s+(\d{2})\s+(\w+)/);
+        if (match) {
+            const [, day, month, hourStr, timezone] = match;
+            const monthMap = {
+                'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
+                'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
+            };
+            const monthIndex = monthMap[month];
+            if (monthIndex !== undefined) {
+                // Parse hour in 24-hour format: 06 = 6 AM, 18 = 6 PM, 00 = midnight
+                const hour24 = parseInt(hourStr, 10);
+                // Assume current year if not specified
+                const year = new Date().getFullYear();
+                return new Date(year, monthIndex, parseInt(day), hour24, 0, 0);
+            }
+        }
+    }
+    
+    // Try parsing as ISO string
+    const isoDate = new Date(timestamp);
+    if (!isNaN(isoDate.getTime())) return isoDate;
+    return new Date();
 }
 
 // NEW: Check database storage status for debugging
@@ -93,8 +135,8 @@ async function checkStorageStatus() {
     }
 }
 
-// UPDATED: Generate synthetic data for 7 days instead of 24 hours
-function generateSyntheticSeries(currentValue, hours = 168) { // 7 days = 168 hours
+// UPDATED: Generate synthetic data for 15 days instead of 24 hours
+function generateSyntheticSeries(currentValue, hours = 360) { // 15 days = 360 hours
     const data = [];
     const now = new Date();
     const value = parseFloat(String(currentValue).replace(/,/g, '')) || 50000;
@@ -162,8 +204,8 @@ function normalizeStatusClass(status) {
     return normalized;
 }
 
-// UPDATED: Generate historical data for 7 days (168 hours)
-function generateHistoricalData(currentValue, hours = 168) {
+// UPDATED: Generate historical data for 15 days (360 hours)
+function generateHistoricalData(currentValue, hours = 360) {
     const data = [];
     const now = new Date();
     const value = parseFloat(String(currentValue).replace(/,/g, '')) || 50000;
@@ -378,22 +420,29 @@ function createDataTable(data, sectionType) {
             }
         });
     });
+    // Ensure recording_time column is always present (per-item timestamp from API) and not duplicated
+    const numericParams = Array.from(allParams).filter(p => p !== 'recording_time');
+    const paramList = ['recording_time', ...numericParams];
     
-    const headers = ['Name', ...Array.from(allParams).map(param => 
-        param.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
-    )];
+    const headers = ['Name', ...paramList.map(param => {
+        if (param === 'recording_time') return 'Recording Time';
+        return param.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    })];
     
     const rows = data.map(item => {
-        const cells = [
-            item.name || 'N/A',
-            ...Array.from(allParams).map(param => {
-                const value = formatValue(item[param]);
+        const cells = [item.name || 'N/A'];
+        paramList.forEach(param => {
+            if (param === 'recording_time') {
+                const recVal = item.recording_time || item.inflow_time || item.outflow_time || 'N/A';
+                cells.push(`<span class="data-value">${recVal}</span>`);
+            } else {
+                const valueRaw = item[param];
+                const value = formatValue(valueRaw);
                 const unit = getParameterUnit(param);
-                const status = getStatusClass(param, value);
-                return `<span class="data-value trend-${status === 'normal' ? 'steady' : status === 'high' ? 'rising' : 'falling'}">${value} ${unit}</span>`;
-            })
-        ];
-        
+                const status = getStatusClass(param, valueRaw);
+                cells.push(`<span class="data-value trend-${status === 'normal' ? 'steady' : status === 'high' ? 'rising' : 'falling'}">${value} ${unit}</span>`);
+            }
+        });
         return `<tr>${cells.map(cell => `<td>${cell}</td>`).join('')}</tr>`;
     }).join('');
     
@@ -481,7 +530,7 @@ function displayHeadworks() {
         });
         container.innerHTML = html;
         
-        // UPDATED: Create charts with 7 days of data
+        // UPDATED: Create charts with 15 days of data
         const sortedRiversForCharts = Object.keys(groups).sort((a, b) => {
             if (a === 'OTHER') return 1;
             if (b === 'OTHER') return -1;
@@ -494,8 +543,8 @@ function displayHeadworks() {
                 const inflowValue = parseFloat(String(item.inflow_discharge || 0).replace(/,/g, ''));
                 const outflowValue = parseFloat(String(item.outflow_discharge || 0).replace(/,/g, ''));
                 
-                // Request 7 days of historical data
-                const history = await fetchHistoricalSeries(item.name, 7);
+                // Request 15 days of historical data
+                const history = await fetchHistoricalSeries(item.name, 15);
                 const inflowSeries = history?.inflow || generateSyntheticSeries(inflowValue);
                 const outflowSeries = history?.outflow || generateSyntheticSeries(outflowValue);
                 
@@ -522,7 +571,7 @@ function displayHeadworks() {
     }
 }
 
-// UPDATED: Create all charts with 7 days of historical data
+// UPDATED: Create all charts with 15 days of historical data
 async function createAllCharts(data, sectionType) {
     for (let idx = 0; idx < data.length; idx++) {
         const item = data[idx];
@@ -530,8 +579,8 @@ async function createAllCharts(data, sectionType) {
         const inflowValue = parseFloat(String(item.inflow_discharge || 0).replace(/,/g, ''));
         const outflowValue = parseFloat(String(item.outflow_discharge || 0).replace(/,/g, ''));
         
-        // Request 7 days of historical data
-        const history = await fetchHistoricalSeries(item.name, 7);
+        // Request 15 days of historical data
+        const history = await fetchHistoricalSeries(item.name, 15);
         const inflowSeries = history?.inflow || generateSyntheticSeries(inflowValue);
         const outflowSeries = history?.outflow || generateSyntheticSeries(outflowValue);
         
@@ -613,11 +662,20 @@ function createInflowOutflowChart(containerId, name, inflowSeries, outflowSeries
     container.appendChild(canvas);
 
     const datasets = [];
+    
+    // Store original timestamps for tooltip access
+    const originalTimestamps = [];
 
     if (inflowSeries && inflowSeries.length > 0) {
+        // Extract original timestamps
+        inflowSeries.forEach((point, index) => {
+            if (!originalTimestamps[index]) originalTimestamps[index] = {};
+            originalTimestamps[index].time = point.originalTime || point.x;
+        });
+        
         datasets.push({
             label: 'Inflow',
-            data: inflowSeries,
+            data: inflowSeries.map(p => ({ x: p.x, y: p.y })), // Simple x,y for Chart.js
             borderColor: '#1d4ed8', // brighter blue
             backgroundColor: '#1d4ed820',
             fill: false,
@@ -629,9 +687,15 @@ function createInflowOutflowChart(containerId, name, inflowSeries, outflowSeries
     }
 
     if (outflowSeries && outflowSeries.length > 0) {
+        // Extract original timestamps  
+        outflowSeries.forEach((point, index) => {
+            if (!originalTimestamps[index]) originalTimestamps[index] = {};
+            originalTimestamps[index].time = point.originalTime || point.x;
+        });
+        
         datasets.push({
             label: 'Outflow',
-            data: outflowSeries,
+            data: outflowSeries.map(p => ({ x: p.x, y: p.y })), // Simple x,y for Chart.js
             borderColor: '#059669', // brighter green
             backgroundColor: 'rgba(5, 150, 105, 0.25)', // lighter green fill
             fill: true,
@@ -718,6 +782,20 @@ function createInflowOutflowChart(containerId, name, inflowSeries, outflowSeries
                     cornerRadius: 8,
                     displayColors: true,
                     callbacks: {
+                        title: function(context) {
+                            // Try to get the original timestamp from the stored array
+                            const dataIndex = context[0].dataIndex;
+                            if (originalTimestamps[dataIndex] && originalTimestamps[dataIndex].time) {
+                                const originalTime = originalTimestamps[dataIndex].time;
+                                // If it's a string from the database like "19-Aug 06 PST", show it directly
+                                if (typeof originalTime === 'string') {
+                                    return `Recorded: ${originalTime}`;
+                                }
+                            }
+                            // Fallback to formatted date
+                            const date = new Date(context[0].parsed.x);
+                            return `Time: ${date.toLocaleString()}`;
+                        },
                         label: function (context) {
                             if (context.dataset.label.includes('Flood')) {
                                 return `${context.dataset.label}: ${context.parsed.y.toLocaleString()} cusecs (Threshold)`;

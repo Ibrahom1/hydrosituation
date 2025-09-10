@@ -111,12 +111,18 @@ def fetch_history_extended(name, days=7):
             conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
             cur.execute("""
-                SELECT inflow_discharge, outflow_discharge, fetched_at
+                SELECT inflow_discharge, outflow_discharge, recorded_at
                 FROM telemetry_history
                 WHERE UPPER(name)=? AND fetched_at >= ?
                 ORDER BY fetched_at ASC
             """, (name.upper().strip(), cutoff.isoformat()))
             rows = cur.fetchall()
+            
+            logging.info(f"Debug: Found {len(rows)} rows for {name}")
+            if rows:
+                first_row = rows[0]
+                logging.info(f"Debug: First row recorded_at: '{first_row[2]}'")
+                
             conn.close()
         except sqlite3.Error as e:
             logging.error(f"Database error: {e}")
@@ -124,11 +130,14 @@ def fetch_history_extended(name, days=7):
     
     inflow_series = []
     outflow_series = []
-    for inflow, outflow, ts in rows:
+    for inflow, outflow, recorded_at in rows:
+        # Use recorded_at directly - this should be like "19-Aug 06 PST"
+        timestamp = recorded_at if recorded_at else "Unknown time"
+        
         if inflow is not None:
-            inflow_series.append({'x': ts, 'y': inflow})
+            inflow_series.append({'x': timestamp, 'y': inflow})
         if outflow is not None:
-            outflow_series.append({'x': ts, 'y': outflow})
+            outflow_series.append({'x': timestamp, 'y': outflow})
     
     return inflow_series, outflow_series
 
@@ -388,7 +397,7 @@ def get_ffd_headworks():
 def get_history():
     """Get historical data from database (read-only)"""
     name = request.args.get('name')
-    days = int(request.args.get('days', 7))
+    days = int(request.args.get('days', 15))
     hours = int(request.args.get('hours', days * 24))
     
     if not name:
