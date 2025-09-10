@@ -86,9 +86,9 @@ function parseTimestamp(timestamp) {
     // If it's already a valid Date object
     if (timestamp instanceof Date) return timestamp;
     
-    // If it's in the database format like "19-Aug 06 PST", convert for Chart.js
-    if (typeof timestamp === 'string' && timestamp.includes('PST')) {
-        // Try to convert "19-Aug 06 PST" to a parseable format
+    // If it's in the database format like "19-Aug 06 PST" or "10-Sep 06 PKT", convert for Chart.js
+    if (typeof timestamp === 'string' && (timestamp.includes('PST') || timestamp.includes('PKT'))) {
+        // Try to convert "19-Aug 06 PST" or "10-Sep 06 PKT" to a parseable format
         const match = timestamp.match(/(\d{1,2})-(\w{3})\s+(\d{2})\s+(\w+)/);
         if (match) {
             const [, day, month, hourStr, timezone] = match;
@@ -100,9 +100,11 @@ function parseTimestamp(timestamp) {
             if (monthIndex !== undefined) {
                 // Parse hour in 24-hour format: 06 = 6 AM, 18 = 6 PM, 00 = midnight
                 const hour24 = parseInt(hourStr, 10);
-                // Assume current year if not specified
-                const year = new Date().getFullYear();
-                return new Date(year, monthIndex, parseInt(day), hour24, 0, 0);
+                // Use 2025 as current year for this data
+                const year = 2025;
+                const parsedDate = new Date(year, monthIndex, parseInt(day), hour24, 0, 0);
+                console.log(`Parsed timestamp: "${timestamp}" -> ${parsedDate.toISOString()}`);
+                return parsedDate;
             }
         }
     }
