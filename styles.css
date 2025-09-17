@@ -659,6 +659,7 @@ body {
     font-weight: 700;
     color: var(--white);
     margin: 0;
+    flex: 1;
 }
 
 .chart-status {
@@ -668,6 +669,26 @@ body {
     border-radius: var(--radius);
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    margin-right: 15px;
+}
+
+/* Chart header layout - clean layout without button accommodation */
+.chart-header {
+    padding: 0.5rem 1rem;
+    background: linear-gradient(90deg, var(--primary-blue-light) 60%, var(--primary-pink) 100%);
+    border-bottom: 2px solid var(--primary-blue);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--white);
+    position: relative;
+}
+
+.chart-header-content {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex: 1;
 }
 
 .chart-status.normal {
@@ -1905,4 +1926,347 @@ canvas {
 .chart-status.high { background: #887406ff !important; color: #fff !important; border: 2px solid #887406ff !important; box-shadow: 0 2px 8px rgba(136,116,6,0.15) !important; }
 .chart-status.very-high { background: #632402ff !important; color: #fff !important; border: 2px solid #632402ff !important; box-shadow: 0 2px 8px rgba(99,36,2,0.15) !important; }
 .chart-status.ex-high { background: #dc2626 !important; color: #fff !important; border: 2px solid #dc2626 !important; box-shadow: 0 2px 8px rgba(220,38,38,0.15) !important; }
+
+/* === FULLSCREEN MODE STYLES === */
+/* Fullscreen button - positioned outside chart item to avoid any overlap */
+.fullscreen-button {
+    position: absolute;
+    top: 12px;
+    right: 2px;
+    background: rgba(37, 99, 235, 0.9);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    width: 28px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 1002;
+    font-size: 11px;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.4);
+}
+
+.fullscreen-button:hover {
+    background: rgba(37, 99, 235, 1);
+    transform: scale(1.05);
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
+}
+
+.fullscreen-button:active {
+    transform: scale(0.95);
+}
+
+/* Fullscreen overlay */
+.fullscreen-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: linear-gradient(120deg, #f9fafb 0%, #e5e7eb 100%);
+    z-index: 9999;
+    display: none;
+    padding: 0;
+    margin: 0;
+    overflow: hidden;
+    opacity: 0;
+    transform: scale(0.95);
+    transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.fullscreen-overlay.active {
+    display: block;
+    opacity: 1;
+    transform: scale(1);
+}
+
+.fullscreen-overlay.closing {
+    opacity: 0;
+    transform: scale(0.95);
+}
+
+@keyframes fadeInFullscreen {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes fadeOutFullscreen {
+    from {
+        opacity: 1;
+        transform: scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+}
+
+/* Fullscreen chart container */
+.fullscreen-chart-container {
+    width: 100vw;
+    height: 100vh;
+    background: white;
+    display: flex;
+    flex-direction: column;
+    box-shadow: none;
+    border-radius: 0;
+    overflow: hidden;
+    position: relative;
+}
+
+/* Fullscreen chart header */
+.fullscreen-chart-header {
+    background: linear-gradient(90deg, var(--primary-blue) 0%, var(--primary-pink) 100%);
+    color: white;
+    padding: 1rem 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 70px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    position: relative;
+    z-index: 10001;
+}
+
+.fullscreen-chart-title {
+    font-size: 2rem;
+    font-weight: 700;
+    margin: 0;
+    color: white;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.fullscreen-chart-status {
+    font-size: 1rem;
+    font-weight: 600;
+    padding: 0.5rem 1.5rem;
+    border-radius: 25px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Minimize button in fullscreen - matching expand button style */
+.fullscreen-minimize-button {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: rgba(37, 99, 235, 0.9);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    width: 28px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 11px;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.4);
+    z-index: 10002;
+}
+
+.fullscreen-minimize-button:hover {
+    background: rgba(37, 99, 235, 1);
+    transform: scale(1.05);
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
+}
+
+.fullscreen-minimize-button:active {
+    transform: scale(0.95);
+}
+
+/* Fullscreen chart canvas area */
+.fullscreen-chart-canvas {
+    flex: 1;
+    padding: 2rem;
+    background: white;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+}
+
+.fullscreen-chart-canvas canvas {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 100% !important;
+    max-height: calc(100vh - 200px) !important;
+}
+
+/* Fullscreen chart info panel */
+.fullscreen-chart-info {
+    background: linear-gradient(120deg, #f8fafc 0%, #e2e8f0 100%);
+    padding: 1.5rem 2rem;
+    border-top: 1px solid #e2e8f0;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 2rem;
+    min-height: 120px;
+    align-items: center;
+}
+
+.fullscreen-flow-item {
+    text-align: center;
+    padding: 1rem;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    border: 1px solid #e2e8f0;
+    transition: all 0.2s ease;
+}
+
+.fullscreen-flow-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.fullscreen-flow-item.inflow {
+    border-left: 4px solid var(--primary-blue);
+}
+
+.fullscreen-flow-item.outflow {
+    border-left: 4px solid var(--secondary-cyan);
+}
+
+.fullscreen-flow-item.recording {
+    border-left: 4px solid var(--primary-green);
+}
+
+.fullscreen-flow-label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--gray-600);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 0.75rem;
+}
+
+.fullscreen-flow-label i {
+    font-size: 1.25rem;
+    color: var(--primary-blue);
+}
+
+.fullscreen-flow-value {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--gray-900);
+    margin-bottom: 0.5rem;
+}
+
+.fullscreen-flow-trend {
+    font-size: 0.9rem;
+    font-weight: 500;
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.fullscreen-recording-time {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    font-size: 1.1rem;
+    color: var(--gray-700);
+    font-weight: 500;
+}
+
+.fullscreen-recording-time i {
+    color: var(--primary-green);
+    font-size: 1.25rem;
+}
+
+/* Hide scrollbars in fullscreen */
+.fullscreen-overlay::-webkit-scrollbar {
+    display: none;
+}
+
+.fullscreen-overlay {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+/* Responsive fullscreen design */
+@media (max-width: 768px) {
+    .fullscreen-chart-header {
+        padding: 0.75rem 1rem;
+        min-height: 60px;
+    }
+    
+    .fullscreen-chart-title {
+        font-size: 1.5rem;
+    }
+    
+    .fullscreen-close-button {
+        width: 40px;
+        height: 40px;
+        font-size: 20px;
+        top: 10px;
+        right: 15px;
+    }
+    
+    .fullscreen-chart-canvas {
+        padding: 1rem;
+    }
+    
+    .fullscreen-chart-info {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+        padding: 1rem;
+        min-height: auto;
+    }
+    
+    .fullscreen-flow-value {
+        font-size: 1.5rem;
+    }
+    
+    .fullscreen-flow-label {
+        font-size: 0.9rem;
+    }
+    
+    .fullscreen-recording-time {
+        font-size: 1rem;
+    }
+}
+
+/* Animation for smooth transitions */
+@keyframes chartExpand {
+    from {
+        transform: scale(1);
+        border-radius: var(--radius-lg);
+    }
+    to {
+        transform: scale(1);
+        border-radius: 0;
+    }
+}
+
+/* Ensure fullscreen overlay is above everything */
+.fullscreen-overlay {
+    z-index: 999999 !important;
+}
+
+/* Make chart items relative positioned for fullscreen button */
+.chart-item {
+    position: relative;
+}
 

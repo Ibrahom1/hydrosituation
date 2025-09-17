@@ -22,6 +22,17 @@ Chart.defaults.elements.point.radius = 5;
 Chart.defaults.elements.point.backgroundColor = '#ec4899';
 Chart.defaults.elements.point.borderColor = '#fff';
 
+// Register zoom plugin if available (CDN global)
+try {
+    if (window.Chart && window.ChartZoom) {
+        Chart.register(window.ChartZoom);
+    } else if (window.Chart && window['chartjs-plugin-zoom']) {
+        Chart.register(window['chartjs-plugin-zoom']);
+    }
+} catch (e) {
+    console.warn('Chart.js Zoom plugin registration failed:', e);
+}
+
 // Professional color palette
 const colors = {
     primary: '#2563eb',
@@ -277,6 +288,21 @@ function createChart(containerId, name, parameter, value, unit) {
                             return `${context.parsed.y.toLocaleString()} ${unit}`;
                         }
                     }
+                },
+                zoom: {
+                    zoom: {
+                        wheel: { enabled: true }, // Ctrl+Wheel by default in v2, we'll allow plain wheel
+                        pinch: { enabled: true },
+                        mode: 'x',
+                    },
+                    pan: {
+                        enabled: true,
+                        mode: 'x'
+                    },
+                    limits: {
+                        x: { min: 'original', max: 'original' },
+                        y: { min: 'original', max: 'original' }
+                    }
                 }
             },
             scales: {
@@ -317,6 +343,10 @@ function createChart(containerId, name, parameter, value, unit) {
                 }
             }
         }
+    });
+    // Double-click to reset zoom
+    canvas.addEventListener('dblclick', () => {
+        if (typeof chart.resetZoom === 'function') chart.resetZoom();
     });
     
     return chart;
@@ -373,9 +403,14 @@ function createChartsGrid(data, sectionType) {
         const formattedOutflow = formatValue(outflowValue);
         return `
         <div class="chart-item">
+            <button class="fullscreen-button" onclick="window.toggleFullscreen('${chartId}', '${item.name}', '${status}', '${formattedInflow}', '${formattedOutflow}', '${inflowTrendLabel}', '${outflowTrendLabel}', '${recordingTime}')" title="Toggle Fullscreen">
+                <i class="fas fa-expand"></i>
+            </button>
             <div class="chart-header">
-                <h6 class="chart-title">${item.name}</h6>
-                <span class="chart-status ${normalizeStatusClass(status)}">${status}</span>
+                <div class="chart-header-content">
+                    <h6 class="chart-title">${item.name}</h6>
+                    <span class="chart-status ${normalizeStatusClass(status)}">${status}</span>
+                </div>
             </div>
             <div class="chart-canvas" id="${chartId}"></div>
             <div class="chart-info">
@@ -526,7 +561,35 @@ function displayHeadworks() {
                                         outflowTrend.includes('fall') || outflowTrend.includes('falling') ? 'trend-falling' : 'trend-steady';
                 const outflowTrendLabel = item.outflow_trend || 'N/A';
                 
-                html += `<div class="chart-item"><div class="chart-header"><h6 class="chart-title">${item.name}</h6><span class="chart-status ${normalizeStatusClass(status)}">${status}</span></div><div class="chart-canvas" id="${chartId}"></div><div class="chart-info"><div class="flow-values"><div class="flow-item inflow"><div class="flow-label"><i class="fas fa-arrow-down"></i>Inflow</div><div class="flow-value">${inflowValue} cusecs</div><div class="flow-trend ${inflowTrendClass}"><i class="fas fa-chart-line"></i>${inflowTrendLabel}</div></div><div class="flow-item outflow"><div class="flow-label"><i class="fas fa-arrow-up"></i>Outflow</div><div class="flow-value">${outflowValue} cusecs</div><div class="flow-trend ${outflowTrendClass}"><i class="fas fa-chart-line"></i>${outflowTrendLabel}</div></div></div><div class="recording-info"><div class="recording-time"><i class="fas fa-clock"></i><span>Recorded: ${item.recording_time || 'N/A'}</span></div></div></div></div>`;
+                html += `<div class="chart-item">
+                    <button class="fullscreen-button" onclick="window.toggleFullscreen('${chartId}', '${item.name}', '${status}', '${inflowValue}', '${outflowValue}', '${inflowTrendLabel}', '${outflowTrendLabel}', '${item.recording_time || 'N/A'}')" title="Toggle Fullscreen">
+                        <i class="fas fa-expand"></i>
+                    </button>
+                    <div class="chart-header">
+                        <div class="chart-header-content">
+                            <h6 class="chart-title">${item.name}</h6>
+                            <span class="chart-status ${normalizeStatusClass(status)}">${status}</span>
+                        </div>
+                    </div>
+                    <div class="chart-canvas" id="${chartId}"></div>
+                    <div class="chart-info">
+                        <div class="flow-values">
+                            <div class="flow-item inflow">
+                                <div class="flow-label"><i class="fas fa-arrow-down"></i>Inflow</div>
+                                <div class="flow-value">${inflowValue} cusecs</div>
+                                <div class="flow-trend ${inflowTrendClass}"><i class="fas fa-chart-line"></i>${inflowTrendLabel}</div>
+                            </div>
+                            <div class="flow-item outflow">
+                                <div class="flow-label"><i class="fas fa-arrow-up"></i>Outflow</div>
+                                <div class="flow-value">${outflowValue} cusecs</div>
+                                <div class="flow-trend ${outflowTrendClass}"><i class="fas fa-chart-line"></i>${outflowTrendLabel}</div>
+                            </div>
+                        </div>
+                        <div class="recording-info">
+                            <div class="recording-time"><i class="fas fa-clock"></i><span>Recorded: ${item.recording_time || 'N/A'}</span></div>
+                        </div>
+                    </div>
+                </div>`;
             });
             html += '</div></div>';
         });
@@ -655,13 +718,22 @@ function getFloodLevelsForSite(siteName) {
     return null;
 }
 
-function createInflowOutflowChart(containerId, name, inflowSeries, outflowSeries) {
+function createInflowOutflowChart(containerId, name, inflowSeries, outflowSeries, isFullscreen = false) {
     const container = document.getElementById(containerId);
     if (!container) return null;
 
-    const canvas = document.createElement('canvas');
-    canvas.className = 'chart-canvas';
-    container.appendChild(canvas);
+    // For fullscreen, use the container directly; for regular charts, create canvas
+    let canvas;
+    if (isFullscreen) {
+        canvas = container.querySelector('canvas') || document.createElement('canvas');
+        if (!container.querySelector('canvas')) {
+            container.appendChild(canvas);
+        }
+    } else {
+        canvas = document.createElement('canvas');
+        canvas.className = 'chart-canvas';
+        container.appendChild(canvas);
+    }
 
     const datasets = [];
     
@@ -682,9 +754,9 @@ function createInflowOutflowChart(containerId, name, inflowSeries, outflowSeries
             backgroundColor: '#1d4ed820',
             fill: false,
             tension: 0.4,
-            pointRadius: 0,
-            pointHoverRadius: 6, // bigger hover point
-            borderWidth: 3 // thicker line
+            pointRadius: isFullscreen ? 3 : 0,
+            pointHoverRadius: isFullscreen ? 8 : 6, // bigger hover point
+            borderWidth: isFullscreen ? 4 : 3 // thicker line for fullscreen
         });
     }
 
@@ -702,9 +774,9 @@ function createInflowOutflowChart(containerId, name, inflowSeries, outflowSeries
             backgroundColor: 'rgba(5, 150, 105, 0.25)', // lighter green fill
             fill: true,
             tension: 0.4,
-            pointRadius: 0,
-            pointHoverRadius: 6,
-            borderWidth: 3
+            pointRadius: isFullscreen ? 3 : 0,
+            pointHoverRadius: isFullscreen ? 8 : 6,
+            borderWidth: isFullscreen ? 4 : 3
         });
     }
 
@@ -733,10 +805,10 @@ function createInflowOutflowChart(containerId, name, inflowSeries, outflowSeries
                 datasets.push({
                     label: `${levelKey.replace('_', ' ')} Flood`,
                     data: baseSeries.map(point => ({ x: point.x, y: value })),
-                    borderColor: floodColors[levelKey] || '#000',
+                    borderColor: floodColors[levelKey] || '#ef4444',
                     backgroundColor: 'transparent',
                     borderDash: [5, 5],
-                    borderWidth: 2,
+                    borderWidth: isFullscreen ? 3 : 2,
                     fill: false,
                     pointRadius: 0,
                     pointHoverRadius: 0,
@@ -760,11 +832,11 @@ function createInflowOutflowChart(containerId, name, inflowSeries, outflowSeries
             plugins: {
                 legend: {
                     display: true,
-                    position: 'top',
+                    position: isFullscreen ? 'bottom' : 'top',
                     labels: {
                         usePointStyle: true,
-                        padding: 8,
-                        font: { size: 10 },
+                        padding: isFullscreen ? 20 : 8,
+                        font: { size: isFullscreen ? 14 : 10 },
                         filter: function (legendItem, chartData) {
                             if (legendItem.text.includes('Inflow') || legendItem.text.includes('Outflow')) {
                                 return true;
@@ -783,6 +855,9 @@ function createInflowOutflowChart(containerId, name, inflowSeries, outflowSeries
                     borderWidth: 1,
                     cornerRadius: 8,
                     displayColors: true,
+                    titleFont: { size: isFullscreen ? 16 : 12 },
+                    bodyFont: { size: isFullscreen ? 14 : 11 },
+                    padding: isFullscreen ? 12 : 8,
                     callbacks: {
                         title: function(context) {
                             // Try to get the original timestamp from the stored array
@@ -805,6 +880,21 @@ function createInflowOutflowChart(containerId, name, inflowSeries, outflowSeries
                             return `${context.dataset.label}: ${context.parsed.y.toLocaleString()} cusecs`;
                         }
                     }
+                },
+                zoom: {
+                    zoom: {
+                        wheel: { enabled: true },
+                        pinch: { enabled: true },
+                        mode: 'x'
+                    },
+                    pan: {
+                        enabled: true,
+                        mode: 'x'
+                    },
+                    limits: {
+                        x: { min: 'original', max: 'original' },
+                        y: { min: 'original', max: 'original' }
+                    }
                 }
             },
             scales: {
@@ -812,24 +902,35 @@ function createInflowOutflowChart(containerId, name, inflowSeries, outflowSeries
                     type: 'time',
                     time: { 
                         displayFormats: { 
-                            hour: 'HH:mm',
-                            day: 'MMM dd'
-                        }
+                            hour: isFullscreen ? 'MMM dd HH:mm' : 'HH:mm',
+                            day: isFullscreen ? 'MMM dd' : 'MMM dd',
+                            week: 'MMM dd',
+                            month: 'MMM yyyy'
+                        },
+                        tooltipFormat: 'MMM dd, yyyy HH:mm'
                     },
-                    grid: { color: colors.gray[200], drawTicks: false },
+                    grid: { 
+                        color: colors.gray[200], 
+                        drawTicks: false,
+                        lineWidth: isFullscreen ? 2 : 1
+                    },
                     border: { display: false },
                     ticks: {
-                        maxTicksLimit: 8, // Increased for 7-day view
+                        maxTicksLimit: isFullscreen ? 12 : 8, // More ticks for fullscreen
                         color: colors.gray[500],
-                        font: { size: 10 }
+                        font: { size: isFullscreen ? 14 : 10 }
                     }
                 },
                 y: {
-                    grid: { color: colors.gray[200], drawTicks: false },
+                    grid: { 
+                        color: colors.gray[200], 
+                        drawTicks: false,
+                        lineWidth: isFullscreen ? 2 : 1
+                    },
                     border: { display: false },
                     ticks: {
                         color: colors.gray[500],
-                        font: { size: 10 },
+                        font: { size: isFullscreen ? 14 : 10 },
                         callback: value => value.toLocaleString()
                     }
                 }
@@ -1006,3 +1107,251 @@ document.addEventListener('DOMContentLoaded', async function() {
     
     console.log('Modern professional dashboard initialized successfully');
 });
+
+// === FULLSCREEN FUNCTIONALITY ===
+let fullscreenOverlay = null;
+let fullscreenChart = null;
+let originalChartInstance = null;
+let isFullscreenActive = false;
+let currentFullscreenData = null;
+
+// Create fullscreen overlay if it doesn't exist
+function createFullscreenOverlay() {
+    if (!fullscreenOverlay) {
+        fullscreenOverlay = document.createElement('div');
+        fullscreenOverlay.className = 'fullscreen-overlay';
+        fullscreenOverlay.innerHTML = `
+            <div class="fullscreen-chart-container">
+                <div class="fullscreen-chart-header">
+                    <h2 class="fullscreen-chart-title"></h2>
+                    <span class="fullscreen-chart-status"></span>
+                    <button class="fullscreen-minimize-button" onclick="window.toggleFullscreen()" title="Minimize">
+                        <i class="fas fa-compress"></i>
+                    </button>
+                </div>
+                <div class="fullscreen-chart-canvas" id="fullscreen-chart-canvas"></div>
+                <div class="fullscreen-chart-info">
+                    <div class="fullscreen-flow-item inflow">
+                        <div class="fullscreen-flow-label">
+                            <i class="fas fa-arrow-down"></i>
+                            Inflow
+                        </div>
+                        <div class="fullscreen-flow-value" id="fullscreen-inflow-value">N/A</div>
+                        <div class="fullscreen-flow-trend trend-steady" id="fullscreen-inflow-trend">N/A</div>
+                    </div>
+                    <div class="fullscreen-flow-item outflow">
+                        <div class="fullscreen-flow-label">
+                            <i class="fas fa-arrow-up"></i>
+                            Outflow
+                        </div>
+                        <div class="fullscreen-flow-value" id="fullscreen-outflow-value">N/A</div>
+                        <div class="fullscreen-flow-trend trend-steady" id="fullscreen-outflow-trend">N/A</div>
+                    </div>
+                    <div class="fullscreen-flow-item recording">
+                        <div class="fullscreen-flow-label">
+                            <i class="fas fa-clock"></i>
+                            Recording Time
+                        </div>
+                        <div class="fullscreen-recording-time" id="fullscreen-recording-time">
+                            <span>N/A</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(fullscreenOverlay);
+    }
+}
+
+// Toggle fullscreen view - handles both expand and minimize
+window.toggleFullscreen = async function(chartId, name, status, inflowValue, outflowValue, inflowTrend, outflowTrend, recordingTime) {
+    try {
+        if (isFullscreenActive) {
+            // Minimize - close fullscreen
+            await minimizeFullscreen();
+        } else {
+            // Expand - open fullscreen
+            if (!chartId) {
+                console.warn('No chart data provided for fullscreen');
+                return;
+            }
+            await expandFullscreen(chartId, name, status, inflowValue, outflowValue, inflowTrend, outflowTrend, recordingTime);
+        }
+    } catch (error) {
+        console.error('Error toggling fullscreen:', error);
+        await minimizeFullscreen();
+    }
+};
+
+// Expand to fullscreen
+async function expandFullscreen(chartId, name, status, inflowValue, outflowValue, inflowTrend, outflowTrend, recordingTime) {
+    // Create overlay if needed
+    createFullscreenOverlay();
+    
+    // Store current data for potential re-use
+    currentFullscreenData = { chartId, name, status, inflowValue, outflowValue, inflowTrend, outflowTrend, recordingTime };
+    
+    // Get the original chart instance
+    originalChartInstance = chartsInstances[chartId];
+    if (!originalChartInstance) {
+        console.warn('No chart instance found for', chartId);
+        return;
+    }
+    
+    // Update header info
+    document.querySelector('.fullscreen-chart-title').textContent = name;
+    const statusElement = document.querySelector('.fullscreen-chart-status');
+    statusElement.textContent = status;
+    statusElement.className = `fullscreen-chart-status chart-status ${normalizeStatusClass(status)}`;
+    
+    // Update flow info
+    document.getElementById('fullscreen-inflow-value').textContent = `${inflowValue} cusecs`;
+    document.getElementById('fullscreen-outflow-value').textContent = `${outflowValue} cusecs`;
+    document.getElementById('fullscreen-recording-time').innerHTML = `<span>${recordingTime}</span>`;
+    
+    // Update trend classes
+    const inflowTrendElement = document.getElementById('fullscreen-inflow-trend');
+    const outflowTrendElement = document.getElementById('fullscreen-outflow-trend');
+    
+    inflowTrendElement.textContent = inflowTrend;
+    outflowTrendElement.textContent = outflowTrend;
+    
+    // Set trend classes
+    const inflowTrendClass = getTrendClass(inflowTrend);
+    const outflowTrendClass = getTrendClass(outflowTrend);
+    
+    inflowTrendElement.className = `fullscreen-flow-trend ${inflowTrendClass}`;
+    outflowTrendElement.className = `fullscreen-flow-trend ${outflowTrendClass}`;
+    
+    // Show overlay with animation
+    fullscreenOverlay.style.display = 'block';
+    document.body.style.overflow = 'hidden';
+    
+    // Trigger reflow to ensure display:block takes effect
+    fullscreenOverlay.offsetHeight;
+    
+    // Add active class for animation
+    fullscreenOverlay.classList.add('active');
+    isFullscreenActive = true;
+    
+    // Update all expand buttons to show compress icon
+    updateFullscreenButtons(true);
+    
+    // Wait for animation, then create the chart
+    setTimeout(async () => {
+        await createFullscreenChart(chartId, name);
+    }, 100);
+    
+    // Add escape key listener
+    document.addEventListener('keydown', handleEscapeKey);
+}
+
+// Minimize from fullscreen
+async function minimizeFullscreen() {
+    if (!fullscreenOverlay || !isFullscreenActive) return;
+    
+    // Add closing class for animation
+    fullscreenOverlay.classList.add('closing');
+    fullscreenOverlay.classList.remove('active');
+    
+    // Update all expand buttons to show expand icon
+    updateFullscreenButtons(false);
+    
+    // Wait for animation to complete
+    setTimeout(() => {
+        fullscreenOverlay.style.display = 'none';
+        fullscreenOverlay.classList.remove('closing');
+        document.body.style.overflow = '';
+        
+        // Destroy fullscreen chart
+        if (fullscreenChart) {
+            fullscreenChart.destroy();
+            fullscreenChart = null;
+        }
+        
+        // Clear canvas container
+        const canvasContainer = document.getElementById('fullscreen-chart-canvas');
+        if (canvasContainer) {
+            canvasContainer.innerHTML = '';
+        }
+        
+        isFullscreenActive = false;
+        currentFullscreenData = null;
+    }, 400); // Match CSS transition duration
+    
+    // Remove escape key listener
+    document.removeEventListener('keydown', handleEscapeKey);
+}
+
+// Update all fullscreen buttons icons
+function updateFullscreenButtons(isExpanded) {
+    const buttons = document.querySelectorAll('.fullscreen-button i');
+    buttons.forEach(icon => {
+        if (isExpanded) {
+            icon.className = 'fas fa-compress';
+        } else {
+            icon.className = 'fas fa-expand';
+        }
+    });
+}
+
+// Create the fullscreen chart
+async function createFullscreenChart(originalChartId, name) {
+    try {
+        const canvasContainer = document.getElementById('fullscreen-chart-canvas');
+        canvasContainer.innerHTML = ''; // Clear any existing content
+        
+        const canvas = document.createElement('canvas');
+        canvas.id = 'fullscreen-canvas';
+        canvasContainer.appendChild(canvas);
+        
+        // Get original chart data or fetch fresh historical data
+        let inflowSeries, outflowSeries;
+        
+        if (originalChartInstance && originalChartInstance.data && originalChartInstance.data.datasets) {
+            // Use data from original chart
+            const datasets = originalChartInstance.data.datasets;
+            const inflowDataset = datasets.find(d => d.label === 'Inflow');
+            const outflowDataset = datasets.find(d => d.label === 'Outflow');
+            
+            inflowSeries = inflowDataset ? inflowDataset.data : [];
+            outflowSeries = outflowDataset ? outflowDataset.data : [];
+        } else {
+            // Fetch fresh data
+            console.log('Fetching fresh data for fullscreen chart:', name);
+            const history = await fetchHistoricalSeries(name, 15);
+            inflowSeries = history?.inflow || [];
+            outflowSeries = history?.outflow || [];
+        }
+        
+        // Create fullscreen chart with the data
+        fullscreenChart = createInflowOutflowChart('fullscreen-chart-canvas', name, inflowSeries, outflowSeries, true);
+        
+        if (fullscreenChart) {
+            console.log('Fullscreen chart created successfully');
+        }
+        
+    } catch (error) {
+        console.error('Error creating fullscreen chart:', error);
+    }
+}
+
+// Handle escape key press
+function handleEscapeKey(event) {
+    if (event.key === 'Escape') {
+        window.toggleFullscreen();
+    }
+}
+
+// Get trend class from trend text
+function getTrendClass(trendText) {
+    if (!trendText || trendText === 'N/A') return 'trend-steady';
+    
+    const trend = trendText.toLowerCase();
+    if (trend.includes('rise') || trend.includes('rising')) return 'trend-rising';
+    if (trend.includes('fall') || trend.includes('falling')) return 'trend-falling';
+    return 'trend-steady';
+}
+
+// Update createInflowOutflowChart to support fullscreen mode
+const originalCreateInflowOutflowChart = createInflowOutflowChart;
