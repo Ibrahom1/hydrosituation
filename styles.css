@@ -291,6 +291,91 @@ body {
     gap: 2rem;
 }
 
+/* Global Date Range Controls */
+.date-range-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: var(--white);
+    border: 1px solid var(--gray-200);
+    border-radius: 999px;
+    padding: 0.25rem 0.5rem;
+    box-shadow: var(--shadow-sm);
+}
+
+.active-range-label {
+    margin-left: 0.5rem;
+    color: var(--gray-600);
+    font-size: 0.85rem;
+    background: var(--gray-50);
+    border: 1px solid var(--gray-200);
+    border-radius: 999px;
+    padding: 0.25rem 0.5rem;
+}
+
+.date-range-controls .date-input {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    background: var(--gray-50);
+    border: 1px solid var(--gray-200);
+    padding: 0.25rem 0.5rem;
+    border-radius: 999px;
+}
+
+.date-range-controls .date-input i {
+    color: var(--primary-blue);
+    font-size: 0.875rem;
+}
+
+.date-range-controls input[type="date"] {
+    border: none;
+    background: transparent;
+    outline: none;
+    font-size: 0.85rem;
+    color: var(--gray-800);
+}
+
+.date-range-controls .date-sep {
+    color: var(--gray-500);
+    font-size: 0.85rem;
+    padding: 0 0.25rem;
+}
+
+.apply-range-btn, .reset-range-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border: none;
+    border-radius: 999px;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.apply-range-btn {
+    background: linear-gradient(90deg, var(--primary-blue), var(--primary-pink));
+    color: #fff;
+    box-shadow: var(--shadow-sm);
+}
+
+.apply-range-btn:hover { filter: brightness(1.05); transform: translateY(-1px); }
+.apply-range-btn:active { transform: translateY(0); }
+
+.reset-range-btn {
+    background: var(--gray-100);
+    color: var(--gray-800);
+    border: 1px solid var(--gray-200);
+}
+
+.reset-range-btn:hover { background: var(--gray-200); }
+
+@media (max-width: 992px) {
+    .date-range-controls { display: none; }
+}
+
 .status-panel {
     display: flex;
     align-items: center;

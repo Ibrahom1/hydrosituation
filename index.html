@@ -53,6 +53,27 @@
                         Refresh
                     </button>
                 </div>
+                <!-- Global Date Range Controls -->
+                <div class="date-range-controls" role="group" aria-label="Select date range for charts">
+                    <div class="date-input">
+                        <i class="fa-regular fa-calendar"></i>
+                        <input type="date" id="date-start" aria-label="Start date" />
+                    </div>
+                    <span class="date-sep">to</span>
+                    <div class="date-input">
+                        <i class="fa-regular fa-calendar"></i>
+                        <input type="date" id="date-end" aria-label="End date" />
+                    </div>
+                    <button class="apply-range-btn" id="apply-date-range" title="Apply date range">
+                        <i class="fa-solid fa-filter"></i>
+                        Apply
+                    </button>
+                    <button class="reset-range-btn" id="reset-date-range" title="Reset to last 15 days">
+                        <i class="fa-solid fa-rotate"></i>
+                        Reset
+                    </button>
+                </div>
+                <span id="active-range-label" class="active-range-label" aria-live="polite"></span>
             </div>
         </div>
     </nav>

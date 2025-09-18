@@ -3,6 +3,8 @@ let dashboardData = {};
 let isRefreshing = false;
 let chartsInstances = {};
 let currentView = { dams: 'chart', headworks: 'chart' };
+// Global date range state (null values mean default last 15 days)
+let selectedDateRange = { start: null, end: null };
 
 // Chart.js global configuration
 Chart.defaults.font.family = 'Poppins, Inter, Segoe UI, Roboto, sans-serif';
@@ -60,17 +62,28 @@ function formatValue(value) {
     return isNaN(num) ? 'N/A' : num.toLocaleString('en-US');
 }
 
-// UPDATED: Request 15 days of historical data instead of 24 hours
+// UPDATED: Request 15 days by default; if global date range is set, use it instead
 async function fetchHistoricalSeries(name, days = 15) {
     try {
-        // Use days parameter instead of hours
-        const res = await fetch(`http://localhost:5000/api/history?name=${encodeURIComponent(name)}&days=${days}`);
+        // Build URL conditionally based on selectedDateRange
+        let url = `http://localhost:5000/api/history?name=${encodeURIComponent(name)}`;
+        if (selectedDateRange.start && selectedDateRange.end) {
+            url += `&start_date=${encodeURIComponent(selectedDateRange.start)}&end_date=${encodeURIComponent(selectedDateRange.end)}`;
+        } else {
+            url += `&days=${days}`;
+        }
+        console.log('History fetch URL:', url);
+        const res = await fetch(url);
         if (!res.ok) throw new Error('history status');
         const data = await res.json();
         if (!data.success) throw new Error('history payload');
         if (data.inflow.length === 0 && data.outflow.length === 0) return null;
         
-        console.log(`📊 Historical data for ${name}: ${data.points} data points over ${days} days`);
+        if (selectedDateRange.start && selectedDateRange.end) {
+            console.log(`📊 Historical data for ${name}: ${data.points} points between ${selectedDateRange.start} and ${selectedDateRange.end}`);
+        } else {
+            console.log(`📊 Historical data for ${name}: ${data.points} data points over ${days} days`);
+        }
         
         return {
             inflow: data.inflow.map(p => ({ 
@@ -608,10 +621,21 @@ function displayHeadworks() {
                 const inflowValue = parseFloat(String(item.inflow_discharge || 0).replace(/,/g, ''));
                 const outflowValue = parseFloat(String(item.outflow_discharge || 0).replace(/,/g, ''));
                 
-                // Request 15 days of historical data
+                // Request historical data (selected range if present, else last 15 days)
                 const history = await fetchHistoricalSeries(item.name, 15);
-                const inflowSeries = history?.inflow || generateSyntheticSeries(inflowValue);
-                const outflowSeries = history?.outflow || generateSyntheticSeries(outflowValue);
+                let inflowSeries, outflowSeries;
+                if (selectedDateRange.start && selectedDateRange.end) {
+                    const noData = !history || ((history.inflow?.length || 0) === 0 && (history.outflow?.length || 0) === 0);
+                    if (noData) {
+                        renderNoDataMessage(chartId, `No data for ${item.name} in selected range`);
+                        return;
+                    }
+                    inflowSeries = history.inflow;
+                    outflowSeries = history.outflow;
+                } else {
+                    inflowSeries = history?.inflow || generateSyntheticSeries(inflowValue);
+                    outflowSeries = history?.outflow || generateSyntheticSeries(outflowValue);
+                }
                 
                 const chart = createInflowOutflowChart(chartId, item.name, inflowSeries, outflowSeries);
                 if (chart) chartsInstances[chartId] = chart;
@@ -644,10 +668,21 @@ async function createAllCharts(data, sectionType) {
         const inflowValue = parseFloat(String(item.inflow_discharge || 0).replace(/,/g, ''));
         const outflowValue = parseFloat(String(item.outflow_discharge || 0).replace(/,/g, ''));
         
-        // Request 15 days of historical data
+    // Request historical data (selected range if present, else last 15 days)
         const history = await fetchHistoricalSeries(item.name, 15);
-        const inflowSeries = history?.inflow || generateSyntheticSeries(inflowValue);
-        const outflowSeries = history?.outflow || generateSyntheticSeries(outflowValue);
+        let inflowSeries, outflowSeries;
+        if (selectedDateRange.start && selectedDateRange.end) {
+            const noData = !history || ((history.inflow?.length || 0) === 0 && (history.outflow?.length || 0) === 0);
+            if (noData) {
+                renderNoDataMessage(chartId, `No data for ${item.name} in selected range`);
+                continue;
+            }
+            inflowSeries = history.inflow;
+            outflowSeries = history.outflow;
+        } else {
+            inflowSeries = history?.inflow || generateSyntheticSeries(inflowValue);
+            outflowSeries = history?.outflow || generateSyntheticSeries(outflowValue);
+        }
         
         const chart = createInflowOutflowChart(chartId, item.name, inflowSeries, outflowSeries);
         if (chart) chartsInstances[chartId] = chart;
@@ -1092,6 +1127,47 @@ document.addEventListener('DOMContentLoaded', async function() {
             }
         }
     });
+    // Date range Apply/Reset handlers (global selector)
+    try {
+        const startInput = document.getElementById('date-start');
+        const endInput = document.getElementById('date-end');
+        const applyBtn = document.getElementById('apply-date-range');
+        const resetBtn = document.getElementById('reset-date-range');
+        if (startInput && endInput && applyBtn && resetBtn) {
+            // Boundaries: DB known to start from 2025-08-19 (allow a wider picker start)
+            const minDate = '2025-08-01';
+            startInput.min = minDate; endInput.min = minDate;
+            const today = new Date();
+            const yyyy = today.getFullYear();
+            const mm = String(today.getMonth() + 1).padStart(2, '0');
+            const dd = String(today.getDate()).padStart(2, '0');
+            const todayStr = `${yyyy}-${mm}-${dd}`;
+            startInput.max = todayStr; endInput.max = todayStr;
+
+            applyBtn.addEventListener('click', async () => {
+                const s = startInput.value; const e = endInput.value;
+                if (!s || !e) { alert('Please select both start and end dates.'); return; }
+                if (new Date(s) > new Date(e)) { alert('Start date must be before or equal to End date.'); return; }
+                const earliest = new Date('2025-08-19');
+                if (new Date(e) < earliest) {
+                    alert('No data available before 19-Aug-2025. Please select a later range.');
+                }
+                selectedDateRange.start = s; selectedDateRange.end = e;
+                updateActiveRangeLabel();
+                await reloadAllChartsWithCurrentRange();
+            });
+            resetBtn.addEventListener('click', async () => {
+                selectedDateRange.start = null; selectedDateRange.end = null;
+                startInput.value = ''; endInput.value = '';
+                updateActiveRangeLabel();
+                await reloadAllChartsWithCurrentRange();
+            });
+            // Initialize label on load
+            updateActiveRangeLabel();
+        }
+    } catch (err) {
+        console.warn('Date range handlers init failed', err);
+    }
     
     // Initial data load
     refreshAllData();
@@ -1355,3 +1431,46 @@ function getTrendClass(trendText) {
 
 // Update createInflowOutflowChart to support fullscreen mode
 const originalCreateInflowOutflowChart = createInflowOutflowChart;
+
+// Reload charts helper
+async function reloadAllChartsWithCurrentRange() {
+    try {
+        // Destroy all active charts
+        Object.values(chartsInstances).forEach(ch => { try { ch.destroy(); } catch(_){} });
+        chartsInstances = {};
+        // Re-render sections in chart view
+        if (currentView.dams === 'chart') displayDams();
+        if (currentView.headworks === 'chart') displayHeadworks();
+    } catch (e) {
+        console.warn('Reload with date range failed', e);
+    }
+}
+
+// Render a friendly no-data message into a chart container
+function renderNoDataMessage(containerId, message) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    el.innerHTML = `
+        <div class="loading-placeholder">
+            <i class="fas fa-calendar-xmark" style="font-size:1.25rem;color:#ef4444"></i>
+            <p style="margin:0.25rem 0 0;font-size:0.9rem;color:#6b7280">${message || 'No data available for selected range'}</p>
+        </div>
+    `;
+}
+
+// Update the small label next to the date-range controls to reflect current range
+function updateActiveRangeLabel() {
+    try {
+        const label = document.getElementById('active-range-label');
+        if (!label) return;
+        if (selectedDateRange.start && selectedDateRange.end) {
+            label.textContent = `Showing: ${selectedDateRange.start} → ${selectedDateRange.end}`;
+            label.classList.add('active');
+        } else {
+            label.textContent = 'Showing: Last 15 days';
+            label.classList.remove('active');
+        }
+    } catch (e) {
+        console.warn('Failed to update active range label', e);
+    }
+}

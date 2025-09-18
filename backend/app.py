@@ -50,7 +50,9 @@ RIVER_HEADWORKS_MAP = {
 }
 
 # ---- Historical Data Storage (SQLite) - READ ONLY ----
-DB_PATH = '../hydro_history.db'
+# Resolve DB path relative to this file so it works no matter where app.py is launched from
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.abspath(os.path.join(APP_DIR, '..', 'hydro_history.db'))
 # Optional remote JSON dataset URL (produced by remote collector running every 6h)
 REMOTE_DATA_URL = os.environ.get('REMOTE_DATA_URL', '').strip()
 DB_LOCK = Lock()
@@ -216,6 +218,56 @@ def fetch_history_extended(name, days=7):
         if outflow is not None:
             outflow_series.append({'x': timestamp, 'y': outflow})
     
+    return inflow_series, outflow_series
+
+def fetch_history_between(name, start_date, end_date):
+    """Fetch history between two calendar dates (inclusive) by parsing recorded_at.
+    Dates are strings 'YYYY-MM-DD'. Returns inflow and outflow series.
+    """
+    if not os.path.exists(DB_PATH):
+        logging.warning(f"Database not found at {DB_PATH}")
+        return [], []
+
+    # Parse incoming dates
+    try:
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1) - timedelta(seconds=1)
+    except Exception as e:
+        logging.error(f"Invalid date range params: {start_date} - {end_date}: {e}")
+        return [], []
+
+    with DB_LOCK:
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT inflow_discharge, outflow_discharge, recorded_at
+                FROM telemetry_history
+                WHERE UPPER(name)=? AND recorded_at IS NOT NULL
+                ORDER BY fetched_at ASC
+                """,
+                (name.upper().strip(),),
+            )
+            rows = cur.fetchall()
+            conn.close()
+        except sqlite3.Error as e:
+            logging.error(f"Database error: {e}")
+            return [], []
+
+    # Filter rows by parsed recorded_at
+    inflow_series, outflow_series = [], []
+    for inflow, outflow, recorded_at in rows:
+        pt = parse_recorded_at(recorded_at)
+        if not pt:
+            continue
+        if start_dt <= pt <= end_dt:
+            ts = recorded_at or "Unknown time"
+            if inflow is not None:
+                inflow_series.append({"x": ts, "y": inflow})
+            if outflow is not None:
+                outflow_series.append({"x": ts, "y": outflow})
+
     return inflow_series, outflow_series
 
 def fetch_history(name, hours=24):
@@ -476,10 +528,25 @@ def get_history():
     name = request.args.get('name')
     days = int(request.args.get('days', 15))
     hours = int(request.args.get('hours', days * 24))
+    start_date = request.args.get('start_date')  # YYYY-MM-DD
+    end_date = request.args.get('end_date')      # YYYY-MM-DD
     
     if not name:
         return jsonify({'success': False, 'error': 'Missing name parameter'}), 400
     
+    # If explicit date range provided, use it
+    if start_date and end_date:
+        inflow_series, outflow_series = fetch_history_between(name, start_date, end_date)
+        return jsonify({
+            'success': True,
+            'name': name,
+            'start_date': start_date,
+            'end_date': end_date,
+            'inflow': inflow_series,
+            'outflow': outflow_series,
+            'points': max(len(inflow_series), len(outflow_series)),
+            'source': 'database_readonly'
+        })
     # Use days if provided, otherwise convert hours to days
     if request.args.get('days'):
         inflow_series, outflow_series = fetch_history_extended(name, days)
