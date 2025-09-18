@@ -5,6 +5,8 @@ let chartsInstances = {};
 let currentView = { dams: 'chart', headworks: 'chart' };
 // Global date range state (null values mean default last 15 days)
 let selectedDateRange = { start: null, end: null };
+// Earliest data in DB (inclusive)
+const DB_MIN_DATE = '2025-08-19';
 
 // Chart.js global configuration
 Chart.defaults.font.family = 'Poppins, Inter, Segoe UI, Roboto, sans-serif';
@@ -1134,23 +1136,57 @@ document.addEventListener('DOMContentLoaded', async function() {
         const applyBtn = document.getElementById('apply-date-range');
         const resetBtn = document.getElementById('reset-date-range');
         if (startInput && endInput && applyBtn && resetBtn) {
-            // Boundaries: DB known to start from 2025-08-19 (allow a wider picker start)
-            const minDate = '2025-08-01';
+            // Boundaries: restrict selection to DB minimum and today
+            const minDate = DB_MIN_DATE;
             startInput.min = minDate; endInput.min = minDate;
             const today = new Date();
             const yyyy = today.getFullYear();
             const mm = String(today.getMonth() + 1).padStart(2, '0');
             const dd = String(today.getDate()).padStart(2, '0');
             const todayStr = `${yyyy}-${mm}-${dd}`;
-            startInput.max = todayStr; endInput.max = todayStr;
+            const yest = new Date(today);
+            yest.setDate(yest.getDate() - 1);
+            const yyyyY = yest.getFullYear();
+            const mmY = String(yest.getMonth() + 1).padStart(2, '0');
+            const ddY = String(yest.getDate()).padStart(2, '0');
+            const yesterdayStr = `${yyyyY}-${mmY}-${ddY}`;
+            // Start date cannot be after yesterday; End date can be up to today
+            startInput.max = yesterdayStr; 
+            endInput.max = todayStr;
+
+            // Keep inputs in sync so end can't be before start and start can't be after end
+            const syncBounds = () => {
+                // End min follows Start (or DB min if Start empty)
+                endInput.min = startInput.value || minDate;
+                // Start max is the lesser of End date and yesterday
+                const endVal = endInput.value || yesterdayStr;
+                const maxStart = (new Date(endVal) < new Date(yesterdayStr)) ? endVal : yesterdayStr;
+                startInput.max = maxStart;
+            };
+            startInput.addEventListener('change', syncBounds);
+            endInput.addEventListener('change', syncBounds);
+            syncBounds();
 
             applyBtn.addEventListener('click', async () => {
                 const s = startInput.value; const e = endInput.value;
                 if (!s || !e) { alert('Please select both start and end dates.'); return; }
                 if (new Date(s) > new Date(e)) { alert('Start date must be before or equal to End date.'); return; }
-                const earliest = new Date('2025-08-19');
+                const earliest = new Date(DB_MIN_DATE);
                 if (new Date(e) < earliest) {
                     alert('No data available before 19-Aug-2025. Please select a later range.');
+                }
+                if (new Date(s) < earliest) {
+                    alert('Start date is before available data (19-Aug-2025). It will be adjusted.');
+                    startInput.value = DB_MIN_DATE;
+                }
+                // Cap start to yesterday and end to today
+                if (new Date(s) > new Date(yesterdayStr)) {
+                    alert('Start date cannot be after yesterday. It will be adjusted.');
+                    startInput.value = yesterdayStr;
+                }
+                if (new Date(e) > new Date(todayStr)) {
+                    alert('End date cannot be in the future. It will be adjusted.');
+                    endInput.value = todayStr;
                 }
                 selectedDateRange.start = s; selectedDateRange.end = e;
                 updateActiveRangeLabel();

@@ -101,8 +101,10 @@ def parse_number(value):
     except Exception:
         return None
 
-def parse_recorded_at(recorded_at_str):
-    """Parse recorded_at timestamp like '19-Aug 06 PST' to datetime"""
+def parse_recorded_at(recorded_at_str, fallback_year: int | None = None):
+    """Parse recorded_at timestamp like '19-Aug 06 PST' to datetime.
+    If year is missing, use fallback_year when provided, otherwise current year.
+    """
     if not recorded_at_str:
         return None
     try:
@@ -123,9 +125,9 @@ def parse_recorded_at(recorded_at_str):
             }
             month = month_map.get(month_str, 1)
             
-            # Parse hour (assume current year)
+            # Parse hour (assume provided fallback year or current year)
             hour = int(time_part)
-            year = 2025  # Current year
+            year = fallback_year if fallback_year else datetime.utcnow().year
             
             return datetime(year, month, day, hour, 0, 0)
     except Exception as e:
@@ -133,91 +135,69 @@ def parse_recorded_at(recorded_at_str):
     return None
 
 def fetch_history_extended(name, days=7):
-    """Fetch history for multiple days using recorded_at timestamps - READ ONLY"""
+    """Fetch history for multiple days using recorded_at, robust across years.
+    Uses fetched_at to derive the proper year for recorded_at values.
+    """
     if not os.path.exists(DB_PATH):
         logging.warning(f"Database not found at {DB_PATH}")
         return [], []
-    
+
     with DB_LOCK:
         try:
             conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
-            
-            # Get all recorded_at values for this name to find the most recent
-            cur.execute("""
-                SELECT recorded_at 
-                FROM telemetry_history 
-                WHERE UPPER(name)=? AND recorded_at IS NOT NULL
-                ORDER BY fetched_at DESC
-            """, (name.upper().strip(),))
-            
-            recorded_times = [row[0] for row in cur.fetchall()]
-            if not recorded_times:
-                logging.warning(f"No recorded_at data found for {name}")
-                conn.close()
-                return [], []
-            
-            # Parse all timestamps and find the most recent
-            parsed_times = []
-            for time_str in recorded_times:
-                parsed_time = parse_recorded_at(time_str)
-                if parsed_time:
-                    parsed_times.append((parsed_time, time_str))
-            
-            if not parsed_times:
-                logging.warning(f"Could not parse any recorded_at timestamps for {name}")
-                conn.close()
-                return [], []
-            
-            # Sort by parsed datetime and get the most recent
-            parsed_times.sort(key=lambda x: x[0], reverse=True)
-            latest_datetime, latest_str = parsed_times[0]
-            
-            # Calculate cutoff date (15 days back from latest)
-            cutoff_datetime = latest_datetime - timedelta(days=days)
-            
-            logging.info(f"Debug: Latest recorded_at for {name}: '{latest_str}' ({latest_datetime})")
-            logging.info(f"Debug: Looking for data from {cutoff_datetime} onwards (last {days} days)")
-            
-            # Get all records and filter by parsed recorded_at
-            cur.execute("""
-                SELECT inflow_discharge, outflow_discharge, recorded_at
+            cur.execute(
+                """
+                SELECT inflow_discharge, outflow_discharge, recorded_at, fetched_at
                 FROM telemetry_history
                 WHERE UPPER(name)=? AND recorded_at IS NOT NULL
                 ORDER BY fetched_at ASC
-            """, (name.upper().strip(),))
+                """,
+                (name.upper().strip(),),
+            )
             rows = cur.fetchall()
-            
-            # Filter rows by parsed recorded_at time
-            filtered_rows = []
-            for inflow, outflow, recorded_at in rows:
-                parsed_time = parse_recorded_at(recorded_at)
-                if parsed_time and parsed_time >= cutoff_datetime:
-                    filtered_rows.append((inflow, outflow, recorded_at))
-            
-            logging.info(f"Debug: Found {len(filtered_rows)} rows within last {days} days for {name}")
-            if filtered_rows:
-                first_row = filtered_rows[0]
-                last_row = filtered_rows[-1]
-                logging.info(f"Debug: Date range: '{first_row[2]}' to '{last_row[2]}'")
-                
             conn.close()
-            rows = filtered_rows
         except sqlite3.Error as e:
             logging.error(f"Database error: {e}")
             return [], []
-    
-    inflow_series = []
-    outflow_series = []
-    for inflow, outflow, recorded_at in rows:
-        # Use recorded_at directly - this should be like "19-Aug 06 PST"
-        timestamp = recorded_at if recorded_at else "Unknown time"
-        
+
+    if not rows:
+        logging.warning(f"No history rows found for {name}")
+        return [], []
+
+    # Determine latest by fetched_at
+    def parse_iso(dt_str):
+        try:
+            return datetime.fromisoformat(dt_str)
+        except Exception:
+            return None
+
+    fetched_times = [parse_iso(r[3]) for r in rows if r[3]]
+    latest_fetch = max([ft for ft in fetched_times if ft], default=None)
+    if not latest_fetch:
+        logging.warning(f"No valid fetched_at timestamps for {name}")
+        return [], []
+
+    cutoff_datetime = latest_fetch - timedelta(days=days)
+    logging.info(f"Debug: Latest fetched_at for {name}: {latest_fetch}")
+    logging.info(f"Debug: Looking for data from {cutoff_datetime} onwards (last {days} days)")
+
+    filtered_rows = []
+    for inflow, outflow, recorded_at, fetched_at in rows:
+        ft = parse_iso(fetched_at)
+        fallback_year = ft.year if ft else None
+        parsed_time = parse_recorded_at(recorded_at, fallback_year)
+        if parsed_time and parsed_time >= cutoff_datetime:
+            filtered_rows.append((inflow, outflow, recorded_at))
+
+    logging.info(f"Debug: Found {len(filtered_rows)} rows within last {days} days for {name}")
+    inflow_series, outflow_series = [], []
+    for inflow, outflow, rec in filtered_rows:
+        ts = rec if rec else "Unknown time"
         if inflow is not None:
-            inflow_series.append({'x': timestamp, 'y': inflow})
+            inflow_series.append({"x": ts, "y": inflow})
         if outflow is not None:
-            outflow_series.append({'x': timestamp, 'y': outflow})
-    
+            outflow_series.append({"x": ts, "y": outflow})
     return inflow_series, outflow_series
 
 def fetch_history_between(name, start_date, end_date):
@@ -242,7 +222,7 @@ def fetch_history_between(name, start_date, end_date):
             cur = conn.cursor()
             cur.execute(
                 """
-                SELECT inflow_discharge, outflow_discharge, recorded_at
+                SELECT inflow_discharge, outflow_discharge, recorded_at, fetched_at
                 FROM telemetry_history
                 WHERE UPPER(name)=? AND recorded_at IS NOT NULL
                 ORDER BY fetched_at ASC
@@ -257,8 +237,14 @@ def fetch_history_between(name, start_date, end_date):
 
     # Filter rows by parsed recorded_at
     inflow_series, outflow_series = [], []
-    for inflow, outflow, recorded_at in rows:
-        pt = parse_recorded_at(recorded_at)
+    for inflow, outflow, recorded_at, fetched_at in rows:
+        # Use fetched_at year as fallback for year-less recorded_at strings
+        fallback_year = None
+        try:
+            fallback_year = datetime.fromisoformat(fetched_at).year if fetched_at else None
+        except Exception:
+            fallback_year = None
+        pt = parse_recorded_at(recorded_at, fallback_year)
         if not pt:
             continue
         if start_dt <= pt <= end_dt:
