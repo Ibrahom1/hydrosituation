@@ -429,6 +429,12 @@ function createChartsGrid(data, sectionType) {
             </div>
             <div class="chart-canvas" id="${chartId}"></div>
             <div class="chart-info">
+                <div class="discharge-header">
+                    <h6 class="discharge-title">
+                        <i class="fas fa-tint"></i>
+                        Current Discharge Values
+                    </h6>
+                </div>
                 <div class="flow-values">
                     <div class="flow-item inflow">
                         <div class="flow-label"><i class="fas fa-arrow-down"></i>Inflow</div>
@@ -588,6 +594,12 @@ function displayHeadworks() {
                     </div>
                     <div class="chart-canvas" id="${chartId}"></div>
                     <div class="chart-info">
+                        <div class="discharge-header">
+                            <h6 class="discharge-title">
+                                <i class="fas fa-tint"></i>
+                                Current Discharge Values
+                            </h6>
+                        </div>
                         <div class="flow-values">
                             <div class="flow-item inflow">
                                 <div class="flow-label"><i class="fas fa-arrow-down"></i>Inflow</div>
@@ -1243,7 +1255,14 @@ function createFullscreenOverlay() {
                 </div>
                 <div class="fullscreen-chart-canvas" id="fullscreen-chart-canvas"></div>
                 <div class="fullscreen-chart-info">
-                    <div class="fullscreen-flow-item inflow">
+                    <div class="fullscreen-discharge-header">
+                        <h5 class="fullscreen-discharge-title">
+                            <i class="fas fa-tint"></i>
+                            Current Discharge Values
+                        </h5>
+                    </div>
+                    <div class="fullscreen-flow-items-grid">
+                        <div class="fullscreen-flow-item inflow">
                         <div class="fullscreen-flow-label">
                             <i class="fas fa-arrow-down"></i>
                             Inflow
@@ -1268,6 +1287,7 @@ function createFullscreenOverlay() {
                             <span>N/A</span>
                         </div>
                     </div>
+                </div>
                 </div>
             </div>
         `;
