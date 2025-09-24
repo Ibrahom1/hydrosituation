@@ -7,8 +7,10 @@ from datetime import datetime, timedelta
 import sqlite3
 import os
 from threading import Lock
-from apscheduler.schedulers.background import BackgroundScheduler
-import atexit
+# Scheduler not used in read-only mode
+import csv
+from functools import lru_cache
+from typing import Optional, Dict, List
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -53,6 +55,8 @@ RIVER_HEADWORKS_MAP = {
 # Resolve DB path relative to this file so it works no matter where app.py is launched from
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.abspath(os.path.join(APP_DIR, '..', 'hydro_history.db'))
+# Historical CSV path (June 15 to Aug 18, 2025)
+CSV_PATH = os.path.abspath(os.path.join(APP_DIR, '..', 'historic2025flooddata_16june.csv'))
 # Optional remote JSON dataset URL (produced by remote collector running every 6h)
 REMOTE_DATA_URL = os.environ.get('REMOTE_DATA_URL', '').strip()
 DB_LOCK = Lock()
@@ -101,7 +105,7 @@ def parse_number(value):
     except Exception:
         return None
 
-def parse_recorded_at(recorded_at_str, fallback_year: int | None = None):
+def parse_recorded_at(recorded_at_str, fallback_year: Optional[int] = None):
     """Parse recorded_at timestamp like '19-Aug 06 PST' to datetime.
     If year is missing, use fallback_year when provided, otherwise current year.
     """
@@ -112,7 +116,7 @@ def parse_recorded_at(recorded_at_str, fallback_year: int | None = None):
         parts = recorded_at_str.strip().split()
         if len(parts) >= 3:
             date_part = parts[0]  # "19-Aug"
-            time_part = parts[1]  # "06" or "12"
+            time_part = parts[1]  # "06" or "12:30"
             
             # Parse day and month
             day, month_str = date_part.split('-')
@@ -125,11 +129,17 @@ def parse_recorded_at(recorded_at_str, fallback_year: int | None = None):
             }
             month = month_map.get(month_str, 1)
             
-            # Parse hour (assume provided fallback year or current year)
-            hour = int(time_part)
+            # Parse hour and optional minutes (assume provided fallback year or current year)
+            if ':' in time_part:
+                hour_str, min_str = time_part.split(':', 1)
+                hour = int(hour_str)
+                minute = int(min_str)
+            else:
+                hour = int(time_part)
+                minute = 0
             year = fallback_year if fallback_year else datetime.utcnow().year
             
-            return datetime(year, month, day, hour, 0, 0)
+            return datetime(year, month, day, hour, minute, 0)
     except Exception as e:
         logging.warning(f"Could not parse recorded_at '{recorded_at_str}': {e}")
     return None
@@ -260,6 +270,220 @@ def fetch_history(name, hours=24):
     """Legacy function - converts hours to days"""
     days = max(1, hours // 24)
     return fetch_history_extended(name, days)
+
+# ---------------- CSV historical dataset (June 15 to Aug 18, 2025) ----------------
+
+CSV_START_DT = datetime(2025, 6, 15, 0, 0, 0)
+CSV_END_DT = datetime(2025, 8, 18, 23, 59, 59)
+DB_START_DT = datetime(2025, 8, 19, 0, 0, 0)
+
+# Mapping from FFD names to CSV "Gauge Site" names
+FFD_TO_CSV_NAME_MAP = {
+    # Dams / reservoirs
+    'TARBELA DAM': ['TARBELA'],
+    'MANGLA DAM': ['MANGLA'],
+    'TARBELA': ['TARBELA'],
+    'MANGLA': ['MANGLA'],
+    # Common headworks/barrages
+    'KALABAGH': ['KALABAGH'],
+    'CHASHMA': ['CHASHMA'],
+    'TAUNSA': ['TAUNSA'],
+    'GUDDU': ['GUDDU'],
+    'SUKKUR': ['SUKKAR'],
+    'KOTRI': ['KOTRI'],
+    'KOTLI': ['KOTLI'],
+    'CHATTAR KLASS': ['CHATTAR KALAS'],
+    'RASUL': ['RASUL'],
+    'MARALA': ['MARALA'],
+    'KHANKI': ['KHANKI'],
+    'Q.ABAD': ['QADIRABAD'],
+    'QADIRABAD': ['QADIRABAD'],
+    'CHINIOT': ['CHINIOT BRIDGE'],
+    'TRIMMU': ['TRIMMU'],
+    'PANJNAD': ['PUNJNAD'],
+    'PUNJNAD': ['PUNJNAD'],
+    'JASSAR': ['JASSAR'],
+    'SHAHDARA': ['SHAHDARA'],
+    'BALLOKI': ['BALLOKI'],
+    'SIDHNAI': ['SIDHNAI'],
+    'SULEMANKI': ['SULEMANKI'],
+    'ISLAM': ['ISLAM'],
+    'G.S WALA': ['G.S WALA*', 'G.S WALA', 'GS WALA', 'GANDA SINGH WALA'],
+    'GANDA SINGH WALA': ['G.S WALA*', 'G.S WALA', 'GS WALA'],
+    'ATTOCK': ['KHAIRABAD'],
+}
+
+def normalize_name(s: str) -> str:
+    return s.upper().strip()
+
+def parse_csv_number(val: str) -> Optional[float]:
+    """Parse discharge columns from CSV: handle NR, Nil, -, blanks, commas."""
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s:
+        return None
+    # Normalize common dash variants and punctuation
+    s_norm = s.replace('—', '-').replace('–', '-').replace('\u2212', '-')
+    s_lower = s_norm.lower().strip().strip(',').strip(';')
+    # Treat non-numeric markers as missing
+    if s_lower in {'-', '--', '---', 'nil', 'nill', 'nr', 'n/a', 'na', 'null', 'none'}:
+        return None
+    if s_lower.startswith('nil') or s_lower.startswith('nr'):
+        return None
+    # If there are no digits at all, consider it missing
+    if not any(ch.isdigit() for ch in s_lower):
+        return None
+    # Keep digits, dot and minus; remove any other trailing units
+    filtered = ''.join(ch for ch in s_norm if (ch.isdigit() or ch in ['.', '-']))
+    if filtered == '' or filtered == '-' or filtered == '.':
+        return None
+    try:
+        return float(filtered)
+    except Exception:
+        try:
+            return float(s_norm.replace(',', ''))
+        except Exception:
+            return None
+
+def csv_recorded_stamp(dt: datetime) -> str:
+    """Convert datetime to DB-like recorded_at string but keep minutes: '15-Jun 12:30 PKT'."""
+    month_map = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    return f"{dt.day:02d}-{month_map[dt.month-1]} {dt.hour:02d}:{dt.minute:02d} PKT"
+
+@lru_cache(maxsize=1)
+def load_csv_history():
+    """Load CSV into memory: returns dict { CSV_NAME: [ {dt, recorded, inflow, outflow, remarks} ] }"""
+    data: Dict[str, List[dict]] = {}
+    if not os.path.exists(CSV_PATH):
+        logging.warning(f"Historical CSV not found at {CSV_PATH}")
+        return data
+    try:
+        with open(CSV_PATH, 'r', encoding='utf-8-sig') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                try:
+                    site = normalize_name(row.get('Gauge Site', ''))
+                    date_str = row.get('Date', '').strip()
+                    time_str = row.get('Time', '').strip()
+                    if not site or not date_str or not time_str:
+                        continue
+                    # Parse date like '15-Jun-2025'
+                    dt_date = datetime.strptime(date_str, '%d-%b-%Y')
+                    # Parse time like '12:00 Hrs' or '23:59 Hrs'
+                    tpart = time_str.split()[0]  # 'HH:MM'
+                    dt_time = datetime.strptime(tpart, '%H:%M').time()
+                    dt = datetime(dt_date.year, dt_date.month, dt_date.day, dt_time.hour, dt_time.minute, 0)
+                    if not (CSV_START_DT <= dt <= CSV_END_DT):
+                        continue
+                    inflow = parse_csv_number(row.get('Up Stream Discharge'))
+                    outflow = parse_csv_number(row.get('Down Stream Discharge'))
+                    remarks = (row.get('Remarks') or '').strip()
+                    rec = {
+                        'dt': dt,
+                        'recorded': csv_recorded_stamp(dt),
+                        'inflow': inflow,
+                        'outflow': outflow,
+                        'remarks': remarks
+                    }
+                    data.setdefault(site, []).append(rec)
+                except Exception as ex:
+                    logging.debug(f"Skipping CSV row due to parse error: {ex}")
+        # Sort each site's records by datetime
+        for k in list(data.keys()):
+            data[k].sort(key=lambda r: r['dt'])
+        logging.info(f"Loaded CSV history for {len(data)} gauge sites from {CSV_PATH}")
+        return data
+    except Exception as e:
+        logging.error(f"Failed to load CSV history: {e}")
+        return data
+
+def csv_sites_for_ffd_name(ffd_name: str) -> List[str]:
+    """Return list of CSV gauge-site names that correspond to an FFD name using mapping and heuristics."""
+    if not ffd_name:
+        return []
+    n = normalize_name(ffd_name).replace(' DAM', '')  # remove DAM suffix when present
+    # Direct mapping
+    if n in FFD_TO_CSV_NAME_MAP:
+        return [normalize_name(x) for x in FFD_TO_CSV_NAME_MAP[n]]
+    # Fallback alias replacements (normalize common variants)
+    aliases = {
+        'SUKKUR': 'SUKKAR',
+        'Q.ABAD': 'QADIRABAD',
+        'Q ABAD': 'QADIRABAD',
+        'CHATTAR KLASS': 'CHATTAR KALAS',
+        'CHINIOT': 'CHINIOT BRIDGE',
+        'PANJNAD': 'PUNJNAD',
+        'GANDA SINGH WALA': 'G.S WALA*',
+        'TARBELA DAM': 'TARBELA',
+        'MANGLA DAM': 'MANGLA',
+        'ATTOCK': 'KHAIRABAD',
+    }
+    if n in aliases:
+        return [normalize_name(aliases[n])]
+    # Heuristic: exact same name
+    return [n]
+
+def fetch_history_from_csv(ffd_name: str, start_dt: datetime, end_dt: datetime):
+    """Fetch inflow/outflow series from CSV for the given FFD site name within [start_dt, end_dt]."""
+    csv_data = load_csv_history()
+    points_in, points_out = [], []
+    logging.debug(f"CSV fetch: name='{ffd_name}', range={start_dt}..{end_dt}")
+    if not csv_data:
+        logging.debug("CSV fetch: no csv_data loaded")
+        return [], []
+    possible_sites = csv_sites_for_ffd_name(ffd_name)
+    logging.debug(f"CSV fetch: possible sites mapped -> {possible_sites}")
+    if not possible_sites:
+        return [], []
+    for site in possible_sites:
+        records = csv_data.get(normalize_name(site), [])
+        logging.debug(f"CSV fetch: site '{site}' has {len(records)} total records")
+        for rec in records:
+            dt = rec['dt']
+            if start_dt <= dt <= end_dt:
+                if rec['inflow'] is not None:
+                    points_in.append((rec['dt'], rec['recorded'], rec['inflow']))
+                if rec['outflow'] is not None:
+                    points_out.append((rec['dt'], rec['recorded'], rec['outflow']))
+    # Ensure chronological order by actual datetime
+    points_in.sort(key=lambda t: t[0])
+    points_out.sort(key=lambda t: t[0])
+    result_in = [{'x': rec_str, 'y': val} for (_dt, rec_str, val) in points_in]
+    result_out = [{'x': rec_str, 'y': val} for (_dt, rec_str, val) in points_out]
+    logging.debug(f"CSV fetch: collected {len(result_in)} inflow and {len(result_out)} outflow points")
+    return result_in, result_out
+
+@app.route('/api/history-csv')
+def get_history_csv_only():
+    """Return only CSV historical data for a site between dates (for debugging/verification)."""
+    name = request.args.get('name')
+    start_date = request.args.get('start_date')  # YYYY-MM-DD
+    end_date = request.args.get('end_date')      # YYYY-MM-DD
+    if not name or not start_date or not end_date:
+        return jsonify({'success': False, 'error': 'name, start_date, end_date are required'}), 400
+    try:
+        s_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        e_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1) - timedelta(seconds=1)
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Invalid date range: {e}'}), 400
+    # Intersect with CSV window
+    s_dt = max(s_dt, CSV_START_DT)
+    e_dt = min(e_dt, CSV_END_DT)
+    inflow, outflow = ([], [])
+    if s_dt <= e_dt:
+        inflow, outflow = fetch_history_from_csv(name, s_dt, e_dt)
+    return jsonify({
+        'success': True,
+        'name': name,
+        'start_date': start_date,
+        'end_date': end_date,
+        'csv_window_start': CSV_START_DT.isoformat(),
+        'csv_window_end': CSV_END_DT.isoformat(),
+        'inflow': inflow,
+        'outflow': outflow,
+        'csv_points': { 'inflow': len(inflow), 'outflow': len(outflow) }
+    })
 
 # Add CORS headers to all responses
 @app.after_request
@@ -520,9 +744,33 @@ def get_history():
     if not name:
         return jsonify({'success': False, 'error': 'Missing name parameter'}), 400
     
-    # If explicit date range provided, use it
+    # If explicit date range provided, use it (merge CSV [Jun 15..Aug 18] + DB [Aug 19..])
     if start_date and end_date:
-        inflow_series, outflow_series = fetch_history_between(name, start_date, end_date)
+        try:
+            s_dt = datetime.strptime(start_date, "%Y-%m-%d")
+            e_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1) - timedelta(seconds=1)
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Invalid date range: {e}'}), 400
+
+        # CSV portion intersection
+        csv_in, csv_out = [], []
+        csv_s = max(s_dt, CSV_START_DT)
+        csv_e = min(e_dt, CSV_END_DT)
+        logging.info(f"History: {name} requested {s_dt}..{e_dt}; CSV window {csv_s}..{csv_e}")
+        if csv_s <= csv_e:
+            csv_in, csv_out = fetch_history_from_csv(name, csv_s, csv_e)
+
+        # DB portion intersection
+        db_in, db_out = [], []
+        db_s = max(s_dt, DB_START_DT)
+        db_e = e_dt
+        logging.info(f"History: {name} DB window {db_s}..{db_e}")
+        if db_s <= db_e:
+            db_in, db_out = fetch_history_between(name, db_s.strftime('%Y-%m-%d'), db_e.strftime('%Y-%m-%d'))
+
+        inflow_series = (csv_in or []) + (db_in or [])
+        outflow_series = (csv_out or []) + (db_out or [])
+        logging.info(f"History: {name} returning {len(inflow_series)} inflow, {len(outflow_series)} outflow points (CSV {len(csv_in)}/{len(csv_out)}, DB {len(db_in)}/{len(db_out)})")
         return jsonify({
             'success': True,
             'name': name,
@@ -531,7 +779,7 @@ def get_history():
             'inflow': inflow_series,
             'outflow': outflow_series,
             'points': max(len(inflow_series), len(outflow_series)),
-            'source': 'database_readonly'
+            'source': 'csv+database' if (csv_in or csv_out) else 'database_readonly'
         })
     # Use days if provided, otherwise convert hours to days
     if request.args.get('days'):

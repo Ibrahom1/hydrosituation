@@ -5,8 +5,76 @@ let chartsInstances = {};
 let currentView = { dams: 'chart', headworks: 'chart' };
 // Global date range state (null values mean default last 15 days)
 let selectedDateRange = { start: null, end: null };
-// Earliest data in DB (inclusive)
+// Earliest data available overall (CSV from 15-Jun-2025); DB starts 19-Aug-2025
+const CSV_MIN_DATE = '2025-06-15';
 const DB_MIN_DATE = '2025-08-19';
+// Cache of computed peak outflow per site: name -> { value: number, time: string }
+const peakCache = new Map();
+
+// Compute and render the overall max outflow (CSV + DB) for a site
+async function updatePeakForChart(siteName, chartId) {
+    try {
+        if (peakCache.has(siteName)) {
+            const peak = peakCache.get(siteName);
+            renderPeak(chartId, peak);
+            return;
+        }
+        // Query full available window: CSV start to today for simplicity
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        const endStr = `${yyyy}-${mm}-${dd}`;
+        const url = `http://localhost:5000/api/history?name=${encodeURIComponent(siteName)}&start_date=${CSV_MIN_DATE}&end_date=${endStr}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('peak fetch failed');
+        const data = await res.json();
+        if (!data.success) throw new Error('peak payload');
+        // Use outflow series only for Max Peak (per requirement)
+        const series = Array.isArray(data.outflow) ? data.outflow : [];
+        let maxVal = -Infinity;
+        let maxTime = '';
+        for (const p of series) {
+            if (typeof p?.y === 'number' && p.y > maxVal) {
+                maxVal = p.y;
+                maxTime = p.x;
+            }
+        }
+        // Fallback: if history has no outflow, use current live outflow as peak so it's never blank
+        let peak;
+        if (maxVal === -Infinity) {
+            const all = [...(dashboardData.dams || []), ...(dashboardData.headworks || [])];
+            const match = all.find(x => (x.name || '').toLowerCase() === siteName.toLowerCase());
+            const liveOut = match ? parseFloat(String(match.outflow_discharge || '').replace(/,/g, '')) : NaN;
+            if (!isNaN(liveOut)) {
+                peak = { value: liveOut, time: match.recording_time || 'Latest' };
+            } else {
+                renderPeak(chartId, null);
+                return;
+            }
+        } else {
+            peak = { value: maxVal, time: maxTime };
+        }
+        peakCache.set(siteName, peak);
+        renderPeak(chartId, peak);
+    } catch (e) {
+        console.warn('Failed to compute peak for', siteName, e);
+        renderPeak(chartId, null);
+    }
+}
+
+function renderPeak(chartId, peak) {
+    const valEl = document.getElementById(`peak_${chartId}_value`);
+    const timeEl = document.getElementById(`peak_${chartId}_time`);
+    if (!valEl || !timeEl) return;
+    if (!peak) {
+        valEl.textContent = '—';
+        timeEl.textContent = '—';
+        return;
+    }
+    valEl.textContent = `${Number(peak.value).toLocaleString()} cusecs`;
+    timeEl.textContent = `Recorded: ${peak.time}`;
+}
 
 // Chart.js global configuration
 Chart.defaults.font.family = 'Poppins, Inter, Segoe UI, Roboto, sans-serif';
@@ -112,24 +180,22 @@ function parseTimestamp(timestamp) {
     // If it's already a valid Date object
     if (timestamp instanceof Date) return timestamp;
     
-    // If it's in the database format like "19-Aug 06 PST" or "10-Sep 06 PKT", convert for Chart.js
+    // If it's in DB-like format with zone and optional minutes (e.g., "19-Aug 06 PKT" or "15-Jun 12:30 PKT"), convert for Chart.js
     if (typeof timestamp === 'string' && (timestamp.includes('PST') || timestamp.includes('PKT'))) {
-        // Try to convert "19-Aug 06 PST" or "10-Sep 06 PKT" to a parseable format
-        const match = timestamp.match(/(\d{1,2})-(\w{3})\s+(\d{2})\s+(\w+)/);
+        // Try with minutes first: DD-MMM HH:MM TZN
+        let match = timestamp.match(/(\d{1,2})-(\w{3})\s+(\d{2})(?::(\d{2}))?\s+(\w+)/);
         if (match) {
-            const [, day, month, hourStr, timezone] = match;
+            const [, day, month, hourStr, minuteStr, timezone] = match;
             const monthMap = {
                 'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
                 'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
             };
             const monthIndex = monthMap[month];
             if (monthIndex !== undefined) {
-                // Parse hour in 24-hour format: 06 = 6 AM, 18 = 6 PM, 00 = midnight
                 const hour24 = parseInt(hourStr, 10);
-                // Use 2025 as current year for this data
-                const year = 2025;
-                const parsedDate = new Date(year, monthIndex, parseInt(day), hour24, 0, 0);
-                console.log(`Parsed timestamp: "${timestamp}" -> ${parsedDate.toISOString()}`);
+                const minute = minuteStr ? parseInt(minuteStr, 10) : 0;
+                const year = 2025; // CSV/DB year context
+                const parsedDate = new Date(year, monthIndex, parseInt(day, 10), hour24, minute, 0);
                 return parsedDate;
             }
         }
@@ -428,6 +494,21 @@ function createChartsGrid(data, sectionType) {
                 </div>
             </div>
             <div class="chart-canvas" id="${chartId}"></div>
+            <div class="peak-info" id="peak_${chartId}">
+                <div class="discharge-header">
+                    <h6 class="discharge-title">
+                        <i class="fas fa-mountain"></i>
+                        Max Peak
+                    </h6>
+                </div>
+                <div class="flow-values">
+                    <div class="flow-item outflow">
+                        <div class="flow-label"><i class="fas fa-arrow-up"></i>Peak</div>
+                        <div class="flow-value" id="peak_${chartId}_value">—</div>
+                        <div class="flow-trend trend-steady" id="peak_${chartId}_time">—</div>
+                    </div>
+                </div>
+            </div>
             <div class="chart-info">
                 <div class="discharge-header">
                     <h6 class="discharge-title">
@@ -593,6 +674,21 @@ function displayHeadworks() {
                         </div>
                     </div>
                     <div class="chart-canvas" id="${chartId}"></div>
+                    <div class="peak-info" id="peak_${chartId}">
+                        <div class="discharge-header">
+                            <h6 class="discharge-title">
+                                <i class="fas fa-mountain"></i>
+                                Max Peak
+                            </h6>
+                        </div>
+                        <div class="flow-values">
+                            <div class="flow-item outflow">
+                                <div class="flow-label"><i class="fas fa-arrow-up"></i>Peak</div>
+                                <div class="flow-value" id="peak_${chartId}_value">—</div>
+                                <div class="flow-trend trend-steady" id="peak_${chartId}_time">—</div>
+                            </div>
+                        </div>
+                    </div>
                     <div class="chart-info">
                         <div class="discharge-header">
                             <h6 class="discharge-title">
@@ -641,6 +737,8 @@ function displayHeadworks() {
                 if (selectedDateRange.start && selectedDateRange.end) {
                     const noData = !history || ((history.inflow?.length || 0) === 0 && (history.outflow?.length || 0) === 0);
                     if (noData) {
+                        // Always compute/show overall peak even when selected range has no data
+                        updatePeakForChart(item.name, chartId);
                         renderNoDataMessage(chartId, `No data for ${item.name} in selected range`);
                         return;
                     }
@@ -653,6 +751,7 @@ function displayHeadworks() {
                 
                 const chart = createInflowOutflowChart(chartId, item.name, inflowSeries, outflowSeries);
                 if (chart) chartsInstances[chartId] = chart;
+                updatePeakForChart(item.name, chartId);
             });
         });
     } else {
@@ -688,6 +787,8 @@ async function createAllCharts(data, sectionType) {
         if (selectedDateRange.start && selectedDateRange.end) {
             const noData = !history || ((history.inflow?.length || 0) === 0 && (history.outflow?.length || 0) === 0);
             if (noData) {
+                // Always show overall Max Peak even when selected range has no data
+                updatePeakForChart(item.name, chartId);
                 renderNoDataMessage(chartId, `No data for ${item.name} in selected range`);
                 continue;
             }
@@ -698,8 +799,9 @@ async function createAllCharts(data, sectionType) {
             outflowSeries = history?.outflow || generateSyntheticSeries(outflowValue);
         }
         
-        const chart = createInflowOutflowChart(chartId, item.name, inflowSeries, outflowSeries);
-        if (chart) chartsInstances[chartId] = chart;
+    const chart = createInflowOutflowChart(chartId, item.name, inflowSeries, outflowSeries);
+    if (chart) chartsInstances[chartId] = chart;
+    updatePeakForChart(item.name, chartId);
     }
 }
 
@@ -785,20 +887,12 @@ function createInflowOutflowChart(containerId, name, inflowSeries, outflowSeries
     }
 
     const datasets = [];
-    
-    // Store original timestamps for tooltip access
-    const originalTimestamps = [];
 
     if (inflowSeries && inflowSeries.length > 0) {
-        // Extract original timestamps
-        inflowSeries.forEach((point, index) => {
-            if (!originalTimestamps[index]) originalTimestamps[index] = {};
-            originalTimestamps[index].time = point.originalTime || point.x;
-        });
-        
         datasets.push({
             label: 'Inflow',
-            data: inflowSeries.map(p => ({ x: p.x, y: p.y })), // Simple x,y for Chart.js
+            // Preserve originalTime so tooltip can display CSV/DB timestamp exactly
+            data: inflowSeries.map(p => ({ x: p.x, y: p.y, originalTime: p.originalTime || p.x })),
             borderColor: '#1d4ed8', // brighter blue
             backgroundColor: '#1d4ed820',
             fill: false,
@@ -810,15 +904,9 @@ function createInflowOutflowChart(containerId, name, inflowSeries, outflowSeries
     }
 
     if (outflowSeries && outflowSeries.length > 0) {
-        // Extract original timestamps  
-        outflowSeries.forEach((point, index) => {
-            if (!originalTimestamps[index]) originalTimestamps[index] = {};
-            originalTimestamps[index].time = point.originalTime || point.x;
-        });
-        
         datasets.push({
             label: 'Outflow',
-            data: outflowSeries.map(p => ({ x: p.x, y: p.y })), // Simple x,y for Chart.js
+            data: outflowSeries.map(p => ({ x: p.x, y: p.y, originalTime: p.originalTime || p.x })),
             borderColor: '#059669', // brighter green
             backgroundColor: 'rgba(5, 150, 105, 0.25)', // lighter green fill
             fill: true,
@@ -877,7 +965,8 @@ function createInflowOutflowChart(containerId, name, inflowSeries, outflowSeries
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            interaction: { intersect: false, mode: 'index' },
+            // Use nearest along x-axis so hover works naturally in non-fullscreen
+            interaction: { intersect: false, mode: 'nearest', axis: 'x' },
             plugins: {
                 legend: {
                     display: true,
@@ -909,16 +998,12 @@ function createInflowOutflowChart(containerId, name, inflowSeries, outflowSeries
                     padding: isFullscreen ? 12 : 8,
                     callbacks: {
                         title: function(context) {
-                            // Try to get the original timestamp from the stored array
-                            const dataIndex = context[0].dataIndex;
-                            if (originalTimestamps[dataIndex] && originalTimestamps[dataIndex].time) {
-                                const originalTime = originalTimestamps[dataIndex].time;
-                                // If it's a string from the database like "19-Aug 06 PST", show it directly
-                                if (typeof originalTime === 'string') {
-                                    return `Recorded: ${originalTime}`;
-                                }
+                            // Prefer the raw.originalTime attached to each point
+                            const raw = context[0]?.raw;
+                            const originalTime = raw && (raw.originalTime ?? raw.x);
+                            if (typeof originalTime === 'string') {
+                                return `Recorded: ${originalTime}`;
                             }
-                            // Fallback to formatted date
                             const date = new Date(context[0].parsed.x);
                             return `Time: ${date.toLocaleString()}`;
                         },
@@ -1149,7 +1234,8 @@ document.addEventListener('DOMContentLoaded', async function() {
         const resetBtn = document.getElementById('reset-date-range');
         if (startInput && endInput && applyBtn && resetBtn) {
             // Boundaries: restrict selection to DB minimum and today
-            const minDate = DB_MIN_DATE;
+            // Allow selecting from CSV start
+            const minDate = CSV_MIN_DATE;
             startInput.min = minDate; endInput.min = minDate;
             const today = new Date();
             const yyyy = today.getFullYear();
@@ -1183,13 +1269,11 @@ document.addEventListener('DOMContentLoaded', async function() {
                 const s = startInput.value; const e = endInput.value;
                 if (!s || !e) { alert('Please select both start and end dates.'); return; }
                 if (new Date(s) > new Date(e)) { alert('Start date must be before or equal to End date.'); return; }
-                const earliest = new Date(DB_MIN_DATE);
-                if (new Date(e) < earliest) {
-                    alert('No data available before 19-Aug-2025. Please select a later range.');
-                }
-                if (new Date(s) < earliest) {
-                    alert('Start date is before available data (19-Aug-2025). It will be adjusted.');
-                    startInput.value = DB_MIN_DATE;
+                // Inform user when selecting earlier than DB start (CSV will be used)
+                const earliestCsv = new Date(CSV_MIN_DATE);
+                if (new Date(s) < earliestCsv) {
+                    alert('Earliest available data is 15-Jun-2025. Start will be adjusted.');
+                    startInput.value = CSV_MIN_DATE;
                 }
                 // Cap start to yesterday and end to today
                 if (new Date(s) > new Date(yesterdayStr)) {
@@ -1200,13 +1284,18 @@ document.addEventListener('DOMContentLoaded', async function() {
                     alert('End date cannot be in the future. It will be adjusted.');
                     endInput.value = todayStr;
                 }
-                selectedDateRange.start = s; selectedDateRange.end = e;
+                // Recompute values in case we auto-adjusted inputs above
+                syncBounds();
+                const sAdj = startInput.value; const eAdj = endInput.value;
+                selectedDateRange.start = sAdj; selectedDateRange.end = eAdj;
                 updateActiveRangeLabel();
                 await reloadAllChartsWithCurrentRange();
             });
             resetBtn.addEventListener('click', async () => {
                 selectedDateRange.start = null; selectedDateRange.end = null;
                 startInput.value = ''; endInput.value = '';
+                // Restore default bounds after clearing values so full range is selectable again
+                syncBounds();
                 updateActiveRangeLabel();
                 await reloadAllChartsWithCurrentRange();
             });
@@ -1255,6 +1344,22 @@ function createFullscreenOverlay() {
                 </div>
                 <div class="fullscreen-chart-canvas" id="fullscreen-chart-canvas"></div>
                 <div class="fullscreen-chart-info">
+                    <div class="fullscreen-peak-header">
+                        <h5 class="fullscreen-discharge-title">
+                            <i class="fas fa-mountain"></i>
+                            Max Peak
+                        </h5>
+                    </div>
+                    <div class="fullscreen-flow-items-grid">
+                        <div class="fullscreen-flow-item outflow">
+                            <div class="fullscreen-flow-label">
+                                <i class="fas fa-arrow-up"></i>
+                                Peak
+                            </div>
+                            <div class="fullscreen-flow-value" id="fullscreen-peak-value">—</div>
+                            <div class="fullscreen-flow-trend trend-steady" id="fullscreen-peak-time">—</div>
+                        </div>
+                    </div>
                     <div class="fullscreen-discharge-header">
                         <h5 class="fullscreen-discharge-title">
                             <i class="fas fa-tint"></i>
@@ -1340,6 +1445,14 @@ async function expandFullscreen(chartId, name, status, inflowValue, outflowValue
     document.getElementById('fullscreen-inflow-value').textContent = `${inflowValue} cusecs`;
     document.getElementById('fullscreen-outflow-value').textContent = `${outflowValue} cusecs`;
     document.getElementById('fullscreen-recording-time').innerHTML = `<span>${recordingTime}</span>`;
+    // Populate peak section using cache if present
+    const peak = peakCache.get(name);
+    if (peak) {
+        const pv = document.getElementById('fullscreen-peak-value');
+        const pt = document.getElementById('fullscreen-peak-time');
+        if (pv) pv.textContent = `${Number(peak.value).toLocaleString()} cusecs`;
+        if (pt) pt.textContent = `Recorded: ${peak.time}`;
+    }
     
     // Update trend classes
     const inflowTrendElement = document.getElementById('fullscreen-inflow-trend');

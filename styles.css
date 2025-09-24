@@ -844,6 +844,58 @@ body {
     border-top: 1px solid var(--gray-100);
 }
 
+/* Peak section styling */
+.peak-info {
+    padding: 0.5rem 1rem 0.25rem 1rem;
+    background: var(--white);
+    border-top: 1px solid var(--gray-100);
+}
+.peak-info .flow-values {
+    display: flex;
+    justify-content: center;
+}
+.fullscreen-flow-items-grid {
+    display: grid; /* use grid so column definitions below take effect */
+    justify-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+/* Make the grid after the peak header be a single full-width column for the peak card */
+.fullscreen-peak-header + .fullscreen-flow-items-grid {
+    grid-template-columns: 1fr;
+}
+.fullscreen-peak-header + .fullscreen-flow-items-grid .fullscreen-flow-item {
+    width: 100%;
+}
+.fullscreen-peak-header {
+    background: linear-gradient(90deg, var(--primary-blue-light) 0%, var(--primary-cyan) 100%);
+    border-radius: var(--radius);
+    padding: 0.35rem 0.6rem; /* more compact */
+    margin: 0.2rem 0 0.3rem 0; /* reduce vertical spacing */
+    /* Center the header content like regular discharge headers */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+/* Center the "Max Peak" title row in fullscreen */
+.fullscreen-discharge-title {
+    color: var(--white);
+    font-size: 0.95rem;
+    font-weight: 700;
+    margin: 0;
+    letter-spacing: 0.02em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    text-shadow: 0 1px 4px rgba(37,99,235,0.2);
+    text-align: center;
+}
+/* Ensure fullscreen peak value block is centered */
+.fullscreen-flow-item {
+    text-align: center;
+}
+
 /* Current Discharge Values Header */
 .discharge-header {
     background: linear-gradient(90deg, var(--primary-blue-light) 0%, var(--primary-cyan) 100%);
@@ -2221,7 +2273,7 @@ canvas {
 /* Fullscreen chart canvas area */
 .fullscreen-chart-canvas {
     flex: 1;
-    padding: 2rem;
+    padding: 0.75rem 1rem; /* reduce padding to give chart more room */
     background: white;
     display: flex;
     flex-direction: column;
@@ -2233,41 +2285,42 @@ canvas {
     width: 100% !important;
     height: 100% !important;
     max-width: 100% !important;
-    max-height: calc(100vh - 200px) !important;
+    /* enlarge chart area by decreasing reserved space for info */
+    max-height: calc(100vh - 110px) !important;
 }
 
 /* Fullscreen chart info panel */
 .fullscreen-chart-info {
     background: linear-gradient(120deg, #f8fafc 0%, #e2e8f0 100%);
-    padding: 1.5rem 2rem;
+    padding: 0.75rem 1rem; /* compact */
     border-top: 1px solid #e2e8f0;
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
-    min-height: 120px;
+    gap: 0.75rem; /* tighter spacing */
+    min-height: 72px; /* smaller info area */
 }
 
 /* Fullscreen Current Discharge Values Header */
 .fullscreen-discharge-header {
     background: linear-gradient(90deg, var(--primary-blue) 0%, var(--primary-cyan) 100%);
     border-radius: var(--radius-lg);
-    padding: 1rem 1.5rem;
-    box-shadow: var(--shadow-md);
-    border-bottom: 3px solid var(--primary-blue-dark);
+    padding: 0.5rem 0.75rem; /* compact header */
+    box-shadow: var(--shadow-sm);
+    border-bottom: 2px solid var(--primary-blue-dark);
     text-align: center;
 }
 
 .fullscreen-discharge-title {
     color: var(--white);
-    font-size: 1.25rem;
-    font-weight: 800;
+    font-size: 1rem; /* smaller titles in fullscreen info */
+    font-weight: 700;
     margin: 0;
     letter-spacing: 0.02em;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.75rem;
-    text-shadow: 0 2px 8px rgba(37,99,235,0.3);
+    gap: 0.5rem;
+    text-shadow: 0 1px 4px rgba(37,99,235,0.25);
 }
 
 .fullscreen-discharge-title i {
@@ -2279,24 +2332,23 @@ canvas {
 /* Update fullscreen flow items to be in a grid after the header */
 .fullscreen-chart-info {
     background: linear-gradient(120deg, #f8fafc 0%, #e2e8f0 100%);
-    padding: 1.5rem 2rem;
+    padding: 0.5rem 0.75rem; /* compact info container */
     border-top: 1px solid #e2e8f0;
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
-    min-height: 120px;
+    gap: 0.4rem; /* minimal spacing between sections */
+    min-height: 60px; /* smaller info area */
 }
 
 .fullscreen-flow-items-grid {
-    display: grid;
     grid-template-columns: 1fr 1fr 1fr;
-    gap: 2rem;
+    gap: 0.75rem; /* tighter spacing */
     align-items: center;
 }
 
 .fullscreen-flow-item {
     text-align: center;
-    padding: 1rem;
+    padding: 0.5rem; /* compact cards */
     background: white;
     border-radius: 12px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
@@ -2325,13 +2377,13 @@ canvas {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.75rem;
-    font-size: 1rem;
+    gap: 0.5rem;
+    font-size: 0.8rem; /* smaller label */
     font-weight: 600;
     color: var(--gray-600);
     text-transform: uppercase;
-    letter-spacing: 1px;
-    margin-bottom: 0.75rem;
+    letter-spacing: 0.5px;
+    margin-bottom: 0.25rem;
 }
 
 .fullscreen-flow-label i {
@@ -2340,28 +2392,28 @@ canvas {
 }
 
 .fullscreen-flow-value {
-    font-size: 2rem;
+    font-size: 1.4rem; /* smaller numbers to prioritize chart */
     font-weight: 700;
     color: var(--gray-900);
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.25rem;
 }
 
 .fullscreen-flow-trend {
-    font-size: 0.9rem;
+    font-size: 0.8rem;
     font-weight: 500;
-    padding: 0.25rem 0.75rem;
-    border-radius: 20px;
+    padding: 0.15rem 0.5rem; /* compact chip */
+    border-radius: 16px;
     display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.35rem;
 }
 
 .fullscreen-recording-time {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.75rem;
-    font-size: 1.1rem;
+    gap: 0.5rem;
+    font-size: 0.95rem;
     color: var(--gray-700);
     font-weight: 500;
 }
