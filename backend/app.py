@@ -311,6 +311,7 @@ FFD_TO_CSV_NAME_MAP = {
     'G.S WALA': ['G.S WALA*', 'G.S WALA', 'GS WALA', 'GANDA SINGH WALA'],
     'GANDA SINGH WALA': ['G.S WALA*', 'G.S WALA', 'GS WALA'],
     'ATTOCK': ['KHAIRABAD'],
+    'KABUL': ['NOWSHERA','Nowshehra', 'NOWSHEHRA']
 }
 
 def normalize_name(s: str) -> str:
@@ -418,6 +419,7 @@ def csv_sites_for_ffd_name(ffd_name: str) -> List[str]:
         'TARBELA DAM': 'TARBELA',
         'MANGLA DAM': 'MANGLA',
         'ATTOCK': 'KHAIRABAD',
+        'KABUL': ['NOWSHERA','Nowshehra', 'NOWSHEHRA']
     }
     if n in aliases:
         return [normalize_name(aliases[n])]
@@ -439,7 +441,7 @@ def fetch_history_from_csv(ffd_name: str, start_dt: datetime, end_dt: datetime):
     for site in possible_sites:
         records = csv_data.get(normalize_name(site), [])
         logging.debug(f"CSV fetch: site '{site}' has {len(records)} total records")
-        for rec in records:
+        for rec in records:                                                                                                                                                                                                                                                                               
             dt = rec['dt']
             if start_dt <= dt <= end_dt:
                 if rec['inflow'] is not None:
