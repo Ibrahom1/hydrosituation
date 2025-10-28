@@ -66,6 +66,20 @@ def parse_number(value):
     except Exception:
         return None
 
+def swap_lat_long(items):
+    """Swap lat and long values in a list of items.
+    FFD API has lat/long swapped - this corrects them for proper display.
+    """
+    if not items:
+        return items
+
+    for item in items:
+        if 'lat' in item and 'long' in item:
+            # Swap the values
+            item['lat'], item['long'] = item['long'], item['lat']
+
+    return items
+
 def store_to_database(dams_data, headworks_data):
     if not dams_data.get('dams') and not headworks_data.get('headworks'):
         print('[DB] No data to store to database')
@@ -195,16 +209,20 @@ def fetch_via_dashboard():
 
 def write_payload_and_db(dams, headworks):
     """Write both JSON file and database"""
+    # Swap lat/long for correct display (FFD API has them reversed)
+    swap_lat_long(dams.get('dams', []))
+    swap_lat_long(headworks.get('headworks', []))
+
     # Write JSON file
     payload = {
         'generated_at': datetime.datetime.utcnow().isoformat() + 'Z',
         'dams': dams,              # {"dams": [...]}
-        'headworks': headworks     # {"headworks": [...]} 
+        'headworks': headworks     # {"headworks": [...]}
     }
     with open(OUT_FILE, 'w', encoding='utf-8') as f:
         json.dump(payload, f, ensure_ascii=False)
     print(f'[JSON] Wrote {OUT_FILE}: dams={len(dams.get("dams", []))} headworks={len(headworks.get("headworks", []))}')
-    
+
     # Store to database
     try:
         store_to_database(dams, headworks)
