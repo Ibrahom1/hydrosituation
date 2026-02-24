@@ -132,6 +132,88 @@ function formatValue(value) {
     return isNaN(num) ? 'N/A' : num.toLocaleString('en-US');
 }
 
+function getHistoryFallbackYear() {
+    const fromRange = selectedDateRange?.end || selectedDateRange?.start;
+    if (typeof fromRange === 'string') {
+        const year = Number(fromRange.split('-')[0]);
+        if (!Number.isNaN(year)) return year;
+    }
+    return new Date().getFullYear();
+}
+
+function parseHistoryTimestampParts(timestamp, fallbackYear = null) {
+    if (!timestamp) return null;
+    const raw = String(timestamp).trim();
+    if (!raw) return null;
+
+    const pktMatch = raw.match(/^(\d{1,2})-([A-Za-z]{3})(?:-(\d{2,4}))?\s+(\d{1,2})(?::(\d{2}))?\s*(PKT|PST)?\s*$/i);
+    if (pktMatch) {
+        const day = Number(pktMatch[1]);
+        const monthText = pktMatch[2].slice(0, 1).toUpperCase() + pktMatch[2].slice(1, 3).toLowerCase();
+        const yearText = pktMatch[3];
+        const hour = Number(pktMatch[4]);
+        const minute = pktMatch[5] !== undefined ? Number(pktMatch[5]) : 0;
+        const timezone = (pktMatch[6] || 'PKT').toUpperCase();
+
+        const monthMap = {
+            Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
+            Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11
+        };
+        const monthIndex = monthMap[monthText];
+        if (monthIndex === undefined || Number.isNaN(day) || Number.isNaN(hour) || Number.isNaN(minute)) {
+            return null;
+        }
+
+        let year = Number.isInteger(fallbackYear) ? fallbackYear : new Date().getFullYear();
+        if (yearText) {
+            const parsedYear = Number(yearText);
+            if (!Number.isNaN(parsedYear)) {
+                year = yearText.length === 2 ? 2000 + parsedYear : parsedYear;
+            }
+        }
+
+        const date = new Date(year, monthIndex, day, hour, minute, 0, 0);
+        return Number.isNaN(date.getTime()) ? null : { date, timezone, raw };
+    }
+
+    const nativeParsed = new Date(raw);
+    return Number.isNaN(nativeParsed.getTime()) ? null : { date: nativeParsed, timezone: '', raw };
+}
+
+function formatHistoryTimestampForDisplay(timestamp, fallbackYear = null) {
+    const parsed = parseHistoryTimestampParts(timestamp, fallbackYear);
+    if (!parsed) return String(timestamp || '');
+
+    const date = parsed.date;
+    const month = date.toLocaleString('en-US', { month: 'short' });
+    const day = date.getDate();
+    const hours = date.getHours();
+    const minutes = date.getMinutes();
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const hour12 = hours % 12 || 12;
+    const time = minutes === 0 ? `${hour12} ${ampm}` : `${hour12}:${String(minutes).padStart(2, '0')} ${ampm}`;
+    const zone = parsed.timezone ? ` ${parsed.timezone}` : '';
+
+    return `${day} ${month} ${time}${zone}`;
+}
+
+function mapHistorySeries(series, fallbackYear = null) {
+    if (!Array.isArray(series)) return [];
+
+    return series
+        .map(point => {
+            const parsed = parseHistoryTimestampParts(point?.x, fallbackYear);
+            if (!parsed || typeof point?.y !== 'number') return null;
+            return {
+                x: parsed.date,
+                y: point.y,
+                originalTime: formatHistoryTimestampForDisplay(point.x, fallbackYear)
+            };
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.x.getTime() - b.x.getTime());
+}
+
 // UPDATED: Request 15 days by default; if global date range is set, use it instead
 async function fetchHistoricalSeries(name, days = 15) {
     try {
@@ -148,6 +230,7 @@ async function fetchHistoricalSeries(name, days = 15) {
         const data = await res.json();
         if (!data.success) throw new Error('history payload');
         if (data.inflow.length === 0 && data.outflow.length === 0) return null;
+        const fallbackYear = getHistoryFallbackYear();
         
         if (selectedDateRange.start && selectedDateRange.end) {
             console.log(`📊 Historical data for ${name}: ${data.points} points between ${selectedDateRange.start} and ${selectedDateRange.end}`);
@@ -156,16 +239,8 @@ async function fetchHistoricalSeries(name, days = 15) {
         }
         
         return {
-            inflow: data.inflow.map(p => ({ 
-                x: parseTimestamp(p.x), 
-                y: p.y,
-                originalTime: p.x // Keep original timestamp for tooltip
-            })),
-            outflow: data.outflow.map(p => ({ 
-                x: parseTimestamp(p.x), 
-                y: p.y,
-                originalTime: p.x // Keep original timestamp for tooltip
-            }))
+            inflow: mapHistorySeries(data.inflow, fallbackYear),
+            outflow: mapHistorySeries(data.outflow, fallbackYear)
         };
     } catch (e) {
         console.warn('History fetch failed for', name, e);
@@ -175,36 +250,8 @@ async function fetchHistoricalSeries(name, days = 15) {
 
 // Helper function to parse various timestamp formats
 function parseTimestamp(timestamp) {
-    if (!timestamp) return new Date();
-    
-    // If it's already a valid Date object
-    if (timestamp instanceof Date) return timestamp;
-    
-    // If it's in DB-like format with zone and optional minutes (e.g., "19-Aug 06 PKT" or "15-Jun 12:30 PKT"), convert for Chart.js
-    if (typeof timestamp === 'string' && (timestamp.includes('PST') || timestamp.includes('PKT'))) {
-        // Try with minutes first: DD-MMM HH:MM TZN
-        let match = timestamp.match(/(\d{1,2})-(\w{3})\s+(\d{2})(?::(\d{2}))?\s+(\w+)/);
-        if (match) {
-            const [, day, month, hourStr, minuteStr, timezone] = match;
-            const monthMap = {
-                'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
-                'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
-            };
-            const monthIndex = monthMap[month];
-            if (monthIndex !== undefined) {
-                const hour24 = parseInt(hourStr, 10);
-                const minute = minuteStr ? parseInt(minuteStr, 10) : 0;
-                const year = 2025; // CSV/DB year context
-                const parsedDate = new Date(year, monthIndex, parseInt(day, 10), hour24, minute, 0);
-                return parsedDate;
-            }
-        }
-    }
-    
-    // Try parsing as ISO string
-    const isoDate = new Date(timestamp);
-    if (!isNaN(isoDate.getTime())) return isoDate;
-    return new Date();
+    const parsed = parseHistoryTimestampParts(timestamp, getHistoryFallbackYear());
+    return parsed ? parsed.date : null;
 }
 
 // NEW: Check database storage status for debugging
@@ -1036,7 +1083,7 @@ function createInflowOutflowChart(containerId, name, inflowSeries, outflowSeries
                     type: 'time',
                     time: { 
                         displayFormats: { 
-                            hour: isFullscreen ? 'MMM dd HH:mm' : 'HH:mm',
+                            hour: 'MMM dd HH:mm',
                             day: isFullscreen ? 'MMM dd' : 'MMM dd',
                             week: 'MMM dd',
                             month: 'MMM yyyy'
