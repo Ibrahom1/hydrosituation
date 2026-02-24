@@ -146,6 +146,22 @@ function parseHistoryTimestampParts(timestamp, fallbackYear = null) {
     const raw = String(timestamp).trim();
     if (!raw) return null;
 
+    const normalizedIsoMatch = raw.match(/^([0-9T:\-\.Z]+)\|(PKT|PST)?$/i);
+    if (normalizedIsoMatch) {
+        const parsedIso = new Date(normalizedIsoMatch[1]);
+        if (Number.isNaN(parsedIso.getTime())) return null;
+        return {
+            date: parsedIso,
+            timezone: normalizedIsoMatch[2] ? normalizedIsoMatch[2].toUpperCase() : 'PKT',
+            raw,
+            hasExplicitYear: true,
+            monthIndex: parsedIso.getMonth(),
+            day: parsedIso.getDate(),
+            hour: parsedIso.getHours(),
+            minute: parsedIso.getMinutes()
+        };
+    }
+
     const pktMatch = raw.match(/^(\d{1,2})-([A-Za-z]{3})(?:-(\d{2,4}))?\s+(\d{1,2})(?::(\d{2}))?\s*(PKT|PST)?\s*$/i);
     if (pktMatch) {
         const day = Number(pktMatch[1]);
@@ -164,6 +180,7 @@ function parseHistoryTimestampParts(timestamp, fallbackYear = null) {
             return null;
         }
 
+        const hasExplicitYear = Boolean(yearText);
         let year = Number.isInteger(fallbackYear) ? fallbackYear : new Date().getFullYear();
         if (yearText) {
             const parsedYear = Number(yearText);
@@ -173,11 +190,29 @@ function parseHistoryTimestampParts(timestamp, fallbackYear = null) {
         }
 
         const date = new Date(year, monthIndex, day, hour, minute, 0, 0);
-        return Number.isNaN(date.getTime()) ? null : { date, timezone, raw };
+        return Number.isNaN(date.getTime()) ? null : {
+            date,
+            timezone,
+            raw,
+            hasExplicitYear,
+            monthIndex,
+            day,
+            hour,
+            minute
+        };
     }
 
     const nativeParsed = new Date(raw);
-    return Number.isNaN(nativeParsed.getTime()) ? null : { date: nativeParsed, timezone: '', raw };
+    return Number.isNaN(nativeParsed.getTime()) ? null : {
+        date: nativeParsed,
+        timezone: '',
+        raw,
+        hasExplicitYear: true,
+        monthIndex: nativeParsed.getMonth(),
+        day: nativeParsed.getDate(),
+        hour: nativeParsed.getHours(),
+        minute: nativeParsed.getMinutes()
+    };
 }
 
 function formatHistoryTimestampForDisplay(timestamp, fallbackYear = null) {
@@ -200,18 +235,40 @@ function formatHistoryTimestampForDisplay(timestamp, fallbackYear = null) {
 function mapHistorySeries(series, fallbackYear = null) {
     if (!Array.isArray(series)) return [];
 
-    return series
-        .map(point => {
-            const parsed = parseHistoryTimestampParts(point?.x, fallbackYear);
-            if (!parsed || typeof point?.y !== 'number') return null;
-            return {
-                x: parsed.date,
-                y: point.y,
-                originalTime: formatHistoryTimestampForDisplay(point.x, fallbackYear)
-            };
-        })
-        .filter(Boolean)
-        .sort((a, b) => a.x.getTime() - b.x.getTime());
+    const resolved = [];
+    let rollingYear = Number.isInteger(fallbackYear) ? fallbackYear : new Date().getFullYear();
+    let previous = null;
+
+    series.forEach(point => {
+        const parsed = parseHistoryTimestampParts(point?.x, rollingYear);
+        if (!parsed || typeof point?.y !== 'number') return;
+
+        let candidate = parsed.date;
+        if (!parsed.hasExplicitYear && previous && candidate.getTime() < previous.getTime()) {
+            const prevMonth = previous.getMonth();
+            const currMonth = parsed.monthIndex;
+            if (prevMonth >= 9 && currMonth <= 2) {
+                rollingYear += 1;
+                candidate = new Date(rollingYear, parsed.monthIndex, parsed.day, parsed.hour, parsed.minute, 0, 0);
+            }
+        }
+
+        if (parsed.hasExplicitYear) {
+            rollingYear = candidate.getFullYear();
+        }
+
+        if (Number.isNaN(candidate.getTime())) return;
+
+        const zone = parsed.timezone || 'PKT';
+        resolved.push({
+            x: candidate,
+            y: point.y,
+            originalTime: formatHistoryTimestampForDisplay(`${candidate.toISOString()}|${zone}`, fallbackYear)
+        });
+        previous = candidate;
+    });
+
+    return resolved;
 }
 
 // UPDATED: Request 15 days by default; if global date range is set, use it instead

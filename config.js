@@ -30,7 +30,7 @@ async function fetchHistoricalSeries(name, hours = 24) {
         if (!data.success) throw new Error('history payload');
         if (data.inflow.length === 0 && data.outflow.length === 0) return null; // first run fallback
 
-        const parseHistoryPointTime = (raw) => {
+        const parseHistoryPointTimeParts = (raw, fallbackYear) => {
             if (!raw) return null;
             const value = String(raw).trim();
             const match = value.match(/^(\d{1,2})-([A-Za-z]{3})(?:-(\d{2,4}))?\s+(\d{1,2})(?::(\d{2}))?\s*(PKT|PST)?\s*$/i);
@@ -43,8 +43,8 @@ async function fetchHistoricalSeries(name, hours = 24) {
                 const monthIndex = monthMap[monthText];
                 if (monthIndex === undefined) return null;
 
-                const currentYear = new Date().getFullYear();
-                let year = currentYear;
+                const hasExplicitYear = Boolean(match[3]);
+                let year = Number.isInteger(fallbackYear) ? fallbackYear : new Date().getFullYear();
                 if (match[3]) {
                     const parsedYear = Number(match[3]);
                     if (!Number.isNaN(parsedYear)) {
@@ -56,19 +56,60 @@ async function fetchHistoricalSeries(name, hours = 24) {
                 const hour = Number(match[4]);
                 const minute = match[5] !== undefined ? Number(match[5]) : 0;
                 const dt = new Date(year, monthIndex, day, hour, minute, 0, 0);
-                return Number.isNaN(dt.getTime()) ? null : dt;
+                return Number.isNaN(dt.getTime()) ? null : {
+                    date: dt,
+                    hasExplicitYear,
+                    monthIndex,
+                    day,
+                    hour,
+                    minute
+                };
             }
 
             const nativeParsed = new Date(value);
-            return Number.isNaN(nativeParsed.getTime()) ? null : nativeParsed;
+            return Number.isNaN(nativeParsed.getTime()) ? null : {
+                date: nativeParsed,
+                hasExplicitYear: true,
+                monthIndex: nativeParsed.getMonth(),
+                day: nativeParsed.getDate(),
+                hour: nativeParsed.getHours(),
+                minute: nativeParsed.getMinutes()
+            };
         };
 
-        const inflow = data.inflow
-            .map(p => ({ x: parseHistoryPointTime(p.x), y: p.y }))
-            .filter(p => p.x instanceof Date && !Number.isNaN(p.x.getTime()));
-        const outflow = data.outflow
-            .map(p => ({ x: parseHistoryPointTime(p.x), y: p.y }))
-            .filter(p => p.x instanceof Date && !Number.isNaN(p.x.getTime()));
+        const resolveSeries = (series) => {
+            const resolved = [];
+            let rollingYear = new Date().getFullYear();
+            let previous = null;
+
+            series.forEach(p => {
+                const parsed = parseHistoryPointTimeParts(p.x, rollingYear);
+                if (!parsed || typeof p?.y !== 'number') return;
+
+                let candidate = parsed.date;
+                if (!parsed.hasExplicitYear && previous && candidate.getTime() < previous.getTime()) {
+                    const prevMonth = previous.getMonth();
+                    const currMonth = parsed.monthIndex;
+                    if (prevMonth >= 9 && currMonth <= 2) {
+                        rollingYear += 1;
+                        candidate = new Date(rollingYear, parsed.monthIndex, parsed.day, parsed.hour, parsed.minute, 0, 0);
+                    }
+                }
+
+                if (parsed.hasExplicitYear) {
+                    rollingYear = candidate.getFullYear();
+                }
+
+                if (Number.isNaN(candidate.getTime())) return;
+                resolved.push({ x: candidate, y: p.y });
+                previous = candidate;
+            });
+
+            return resolved;
+        };
+
+        const inflow = resolveSeries(data.inflow || []);
+        const outflow = resolveSeries(data.outflow || []);
 
         return {
             inflow,
