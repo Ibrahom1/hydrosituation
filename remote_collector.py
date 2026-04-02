@@ -1,28 +1,24 @@
 #!/usr/bin/env python3
 """Remote collector script (resilient) with database support.
-Primary attempt: public endpoints ffd.gov.pk/api/dams & /api/headworks.
-Fallback: pm-dashboard POST endpoint (requires API key) -> derive dams & headworks.
-Graceful behaviour: if all attempts fail (DNS / network), exit 0 without updating file (prevents red workflow) and print SKIP.
+Data source: pm-dashboard POST endpoint (requires API key) -> derive dams & headworks.
+Graceful behaviour: if attempts fail (DNS / network / auth), exit 0 without updating file (prevents red workflow) and print SKIP.
 
 NEW: Also updates SQLite database directly (same structure as Flask app)
 
 Environment variables:
-  FFD_API_KEY  (optional) API key for fallback endpoint https://ffd.pmd.gov.pk/api/pm-dashboard
-  MAX_ATTEMPTS (optional) retry attempts for each fetch (default 5)
+    FFD_API_KEY  (optional) API key for endpoint https://ffd.pmd.gov.pk/api/pm-dashboard
+    MAX_ATTEMPTS (optional) retry attempts for dashboard fetch (default 1)
   DB_PATH      (optional) path to SQLite database (default: hydro_history.db)
 """
 
 import json, sys, requests, datetime, time, os, socket, sqlite3
-from requests.exceptions import RequestException
 from threading import Lock
 
-FFD_DAMS = 'https://ffd.gov.pk/api/dams'
-FFD_HEADWORKS = 'https://ffd.gov.pk/api/headworks'
 PM_DASHBOARD = 'https://ffd.pmd.gov.pk/api/pm-dashboard'
 
 OUT_FILE = 'latest.json'
 API_KEY = os.environ.get('FFD_API_KEY', '').strip()
-MAX_ATTEMPTS = int(os.environ.get('MAX_ATTEMPTS', '5'))
+MAX_ATTEMPTS = max(1, int(os.environ.get('MAX_ATTEMPTS', '1')))
 DB_PATH = os.environ.get('DB_PATH', 'hydro_history.db')
 
 UA = {'User-Agent': 'HybridHydroCollector/1.1'}
@@ -170,15 +166,21 @@ def retry_fetch_json(method, url, **kwargs):
             msg = str(e)
             if 'Name or service not known' in msg or 'Temporary failure in name resolution' in msg or isinstance(e, socket.gaierror):
                 dns_hint = ' [DNS resolution issue]'
-            wait = attempt * 2
-            print(f'[WARN] Attempt {attempt}/{MAX_ATTEMPTS} failed for {url}: {e}{dns_hint}. Retrying in {wait}s...')
-            time.sleep(wait)
-    raise RuntimeError(f'All {MAX_ATTEMPTS} attempts failed for {url}: {last_error}')
+            http_hint = ''
+            response = getattr(e, 'response', None)
+            if response is not None:
+                body_preview = (response.text or '').replace('\n', ' ').strip()[:180]
+                http_hint = f' [HTTP {response.status_code}]'
+                if body_preview:
+                    http_hint += f' body="{body_preview}"'
 
-def fetch_public_split():
-    dams = retry_fetch_json('GET', FFD_DAMS)
-    headworks = retry_fetch_json('GET', FFD_HEADWORKS)
-    return dams, headworks
+            if attempt < MAX_ATTEMPTS:
+                wait = attempt * 2
+                print(f'[WARN] Attempt {attempt}/{MAX_ATTEMPTS} failed for {url}: {e}{dns_hint}{http_hint}. Retrying in {wait}s...')
+                time.sleep(wait)
+            else:
+                print(f'[WARN] Attempt {attempt}/{MAX_ATTEMPTS} failed for {url}: {e}{dns_hint}{http_hint}. No more retries.')
+    raise RuntimeError(f'All {MAX_ATTEMPTS} attempts failed for {url}: {last_error}')
 
 def categorize_from_telemetries(items):
     dams = []
@@ -200,7 +202,8 @@ def categorize_from_telemetries(items):
 
 def fetch_via_dashboard():
     if not API_KEY:
-        raise RuntimeError('FFD_API_KEY not provided for fallback dashboard method')
+        raise RuntimeError('FFD_API_KEY not provided for dashboard method')
+    print(f'[INFO] Using pm-dashboard API key (len={len(API_KEY)})')
     data = retry_fetch_json('POST', PM_DASHBOARD, data={'API_KEY': API_KEY})
     if 'data' not in data or not isinstance(data['data'], list):
         raise RuntimeError('Unexpected pm-dashboard structure')
@@ -253,26 +256,15 @@ def main():
         print(f'[DB-WARN] Database initialization failed: {db_init_err}. Continuing with JSON-only mode.')
     
     try:
-        # Phase 1: public endpoints
         try:
-            print('[INFO] Trying public endpoints (ffd.gov.pk)...', flush=True)
-            dams, headworks = fetch_public_split()
-            write_payload_and_db(dams, headworks)
-            print('[DONE] Collected via public endpoints (JSON + DB updated).', flush=True)
-            return 0
-        except Exception as pub_err:
-            print(f'[WARN] Public endpoints failed: {pub_err}', flush=True)
-
-        # Phase 2: fallback dashboard
-        try:
-            print('[INFO] Trying fallback pm-dashboard endpoint...', flush=True)
+            print('[INFO] Collecting from pm-dashboard endpoint...', flush=True)
             dams, headworks = fetch_via_dashboard()
             write_payload_and_db(dams, headworks)
-            print('[DONE] Collected via fallback dashboard (JSON + DB updated).', flush=True)
+            print('[DONE] Collected via pm-dashboard (JSON + DB updated).', flush=True)
             return 0
         except Exception as dash_err:
-            print(f'[WARN] Fallback dashboard failed: {dash_err}', flush=True)
-            print('[SKIP] No data collected this run (network or API issue). Workflow will succeed without update.', flush=True)
+            print(f'[WARN] pm-dashboard collection failed: {dash_err}', flush=True)
+            print('[SKIP] No data collected this run (network, auth, or API issue). Workflow will succeed without update.', flush=True)
             write_placeholder(str(dash_err))
             return 0  # graceful success
     except Exception as fatal:  # absolutely last resort

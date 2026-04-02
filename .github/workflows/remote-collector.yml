@@ -1,8 +1,8 @@
-name: Remote Data Collector (1h) - JSON + Database
+name: Remote Data Collector (Daily) - JSON + Database
 
 on:
   schedule:
-    - cron: '0 * * * *'  # every 1 hours UTC
+    - cron: '0 3 * * *'  # daily at 03:00 UTC (08:00 Karachi)
   workflow_dispatch: {}
 
 jobs:
@@ -12,10 +12,10 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
               
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
                 
@@ -24,13 +24,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
                 
-      - name: Export secret token
+      - name: Validate API key secret
         env:
-          ACTION_TOKEN: ${{ secrets.FFD_API_KEY }}
+          FFD_API_KEY: ${{ secrets.FFD_API_KEY }}
         run: |
-          if [ -n "$ACTION_TOKEN" ]; then
-            echo "FFD_API_KEY provided via secret (len=${#ACTION_TOKEN})";
-            echo "FFD_API_KEY=$ACTION_TOKEN" >> $GITHUB_ENV
+          if [ -n "$FFD_API_KEY" ]; then
+            echo "FFD_API_KEY secret detected (len=${#FFD_API_KEY})";
           else
             echo "No FFD_API_KEY secret configured; collector will likely skip.";
           fi
@@ -45,7 +44,8 @@ jobs:
                 
       - name: Run enhanced collector (JSON + Database)
         env:
-          FFD_API_KEY: ${{ env.FFD_API_KEY }}
+          FFD_API_KEY: ${{ secrets.FFD_API_KEY }}
+          MAX_ATTEMPTS: '1'
         run: |
           echo "Starting data collection with database support..."
           python remote_collector.py || echo "Collector script signaled non-zero; continuing (graceful)."

@@ -29,10 +29,9 @@ A modern, real-time hydrological monitoring dashboard for Pakistan's major dams 
 - **Date range filtering** with custom time period selection
 - **Export capabilities** for data analysis
 
-### 🔄 **Hybrid Data Collection**
-- **Primary**: Public FFD endpoints (`ffd.gov.pk/api/dams`, `/api/headworks`)
-- **Fallback**: PM Dashboard API endpoint with authentication
-- **Remote collector** via GitHub Actions (hourly updates)
+### 🔄 **Remote Data Collection**
+- **Source**: PM Dashboard API endpoint (`https://ffd.pmd.gov.pk/api/pm-dashboard`) with authentication
+- **Remote collector** via GitHub Actions (daily at 08:00 Karachi / 03:00 UTC)
 - **Local caching** with 10-minute refresh intervals
 - **SQLite database** for historical data storage
 
@@ -54,14 +53,13 @@ A modern, real-time hydrological monitoring dashboard for Pakistan's major dams 
 
 ### **Data Pipeline**
 ```
-FFD APIs → Remote Collector → GitHub Actions → SQLite DB → Flask API → Frontend
+PM Dashboard API → Remote Collector → GitHub Actions → SQLite DB → Flask API → Frontend
 ```
 
 ### **Data Sources**
-1. **Primary**: `https://ffd.gov.pk/api/dams` & `/api/headworks`
-2. **Fallback**: `https://ffd.pmd.gov.pk/api/pm-dashboard` (requires API key)
-3. **Historical**: CSV data (June 15 - August 18, 2025)
-4. **Database**: SQLite records from August 19, 2025 onwards
+1. **Collector Source**: `https://ffd.pmd.gov.pk/api/pm-dashboard` (requires API key)
+2. **Historical**: CSV data (June 15 - August 18, 2025)
+3. **Database**: SQLite records from August 19, 2025 onwards
 
 ## 🛠️ Installation & Setup
 
