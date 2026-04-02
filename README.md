@@ -1,241 +1,229 @@
-# 🌊 Hydrological Situation Dashboard
+# Hydrological Situation Dashboard
 
-A modern, real-time hydrological monitoring dashboard for Pakistan's major dams and headworks featuring an enhanced UI with 3D visual elements, smooth animations, and comprehensive data visualization.
+This project provides a frontend dashboard plus a Flask API backend for monitoring Pakistan hydrological telemetry (dams and headworks), including historical charts and date-range filtering.
 
-![Dashboard Preview](https://img.shields.io/badge/Status-Active-brightgreen) ![Node.js](https://img.shields.io/badge/Frontend-Vanilla_JS-yellow) ![Python](https://img.shields.io/badge/Backend-Flask-blue) ![License](https://img.shields.io/badge/License-MIT-green)
+The repository currently uses:
+- A read-only backend API that fetches and caches live telemetry from PM Dashboard
+- A remote collector script that writes `latest.json` and `hydro_history.db`
+- A GitHub Actions workflow running on a self-hosted Linux runner
 
-## 🚀 Features
+## What Is In This Folder
 
-### 📊 **Real-time Data Monitoring**
-- **Live telemetry data** from Pakistan's major dams and headworks
-- **Real-time inflow/outflow** discharge monitoring
-- **Historical data tracking** with hourly interval snapshots
-- **River-based organization** (INDUS, JHELUM, CHENAB, RAVI, SUTLEJ, KABUL)
-- **Automated data classification** between dams and headworks
+- `index.html`, `styles.css`, `script.js`, `config.js`: frontend dashboard
+- `backend/app.py`: Flask API server
+- `backend/requirements.txt`: backend dependencies
+- `remote_collector.py`: PM dashboard collector that updates JSON and SQLite
+- `.github/workflows/remote-collector.yml`: scheduled collector workflow
+- `historic2025flooddata_16june.csv`: CSV history source (June to August 2025)
+- `latest.json`: latest collector payload for remote sync
+- `hydro_history.db`: SQLite history database maintained by collector
 
-### 🎨 **Modern User Interface**
-- **3D glassmorphism effects** with backdrop blur and depth shadows
-- **Smooth animations** with progressive line drawing (stock-market style)
-- **Grid-free charts** with clean axis-only visualization  
-- **Responsive design** optimized for all device sizes
-- **Interactive charts** with zoom/pan capabilities and hover tooltips
-- **Modern color schemes** with gradient overlays and particle backgrounds
+## Current Data Flow
 
-### � **Advanced Data Visualization**
-- **Interactive time-series charts** using Chart.js
-- **Historical data analysis** spanning from June 2025 to present
-- **Peak flow calculations** with automatic caching
-- **Flood level status indicators** with color-coded alerts
-- **Date range filtering** with custom time period selection
-- **Export capabilities** for data analysis
+1. `remote_collector.py` calls `https://ffd.pmd.gov.pk/api/pm-dashboard` using `FFD_API_KEY`.
+2. Collector writes:
+   - `latest.json`
+   - `hydro_history.db` (`telemetry_history` table)
+3. Backend serves frontend from cache and API endpoints.
+4. Frontend calls backend endpoints on `http://localhost:5000` and renders charts/tables.
 
-### 🔄 **Remote Data Collection**
-- **Source**: PM Dashboard API endpoint (`https://ffd.pmd.gov.pk/api/pm-dashboard`) with authentication
-- **Remote collector** via GitHub Actions (daily at 08:00 Karachi / 03:00 UTC)
-- **Local caching** with 10-minute refresh intervals
-- **SQLite database** for historical data storage
+## Runtime Components
 
-## 🏗️ Architecture
+### Frontend
 
-### **Frontend Stack**
-- **HTML5/CSS3/JavaScript** (Vanilla - no build process required)
-- **Chart.js** for interactive data visualization
-- **Bootstrap 5** for responsive grid system
-- **Font Awesome** for iconography
-- **Google Fonts** (Inter/Poppins) for typography
+- UI: vanilla HTML/CSS/JS
+- Charts: Chart.js with annotation and zoom plugins
+- Main features:
+  - Dams and headworks panels
+  - Chart/table toggle per section
+  - Date range apply/reset controls
+  - Peak outflow display per chart
+  - River-grouped headworks view
 
-### **Backend Stack**
-- **Flask** web framework with CORS support
-- **SQLite** for local data persistence
-- **APScheduler** for automated data collection
-- **Requests** for external API integration
-- **Python-dotenv** for environment configuration
+The frontend can optionally request backend remote sync via:
+- `window.REMOTE_DATA_URL` in `index.html`
 
-### **Data Pipeline**
-```
-PM Dashboard API → Remote Collector → GitHub Actions → SQLite DB → Flask API → Frontend
-```
+### Backend (`backend/app.py`)
 
-### **Data Sources**
-1. **Collector Source**: `https://ffd.pmd.gov.pk/api/pm-dashboard` (requires API key)
-2. **Historical**: CSV data (June 15 - August 18, 2025)
-3. **Database**: SQLite records from August 19, 2025 onwards
+Backend mode is read-only for persistence; it does not write telemetry snapshots itself.
 
-## 🛠️ Installation & Setup
+Key behaviors:
+- Loads `FFD_API_KEY` from environment (`python-dotenv`)
+- Fetches PM dashboard data and caches in memory
+- Uses SQLite (`hydro_history.db`) for historical reads
+- Merges CSV history and DB history for date-range queries
 
-### **Prerequisites**
-- Python 3.8+ 
-- Modern web browser
-- Git (for remote updates)
+Main endpoints:
+- `GET /api/health`
+- `GET /api/ffd-telemetries`
+- `GET /api/ffd-dams`
+- `GET /api/ffd-headworks`
+- `GET /api/history?name=<site>&days=15`
+- `GET /api/history?name=<site>&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
+- `GET /api/history-csv?name=<site>&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
+- `GET /api/storage-status`
+- `GET /api/sync-remote?url=<remote-json-url>`
 
-### **Quick Start**
+### Remote Collector (`remote_collector.py`)
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/Ibrahom1/hydrosituation.git
-   cd hydrosituation
-   ```
+Collector behavior is currently PM-dashboard-only.
 
-2. **Backend Setup**
-   ```bash
-   cd backend
-   python -m venv .venv
-   ./.venv/Scripts/Activate.ps1  # Windows
-   # source .venv/bin/activate    # Linux/Mac
-   
-   pip install -r requirements.txt
-   ```
+Key points:
+- Endpoint: `https://ffd.pmd.gov.pk/api/pm-dashboard`
+- Auth payload: `API_KEY` form field
+- Default retries: `MAX_ATTEMPTS=1`
+- Graceful failure policy:
+  - logs warning and skip reason
+  - writes placeholder `latest.json` if file does not exist
+  - exits with code `0` to avoid breaking CI on transient network/auth issues
+- Writes to SQLite table `telemetry_history`
 
-3. **Environment Configuration**
-   ```bash
-   cp .env.example .env
-   # Edit .env file with your API key:
-   # FFD_API_KEY=your_token_here
-   # REMOTE_DATA_URL=https://raw.githubusercontent.com/Ibrahom1/hydrosituation/main/latest.json
-   ```
+## Environment Variables
 
-4. **Start the Backend**
-   ```bash
-   python app.py
-   ```
+### Backend
 
-5. **Access the Dashboard**
-   ```bash
-   # Option 1: Direct file access
-   open index.html
-   
-   # Option 2: Local server (recommended)
-   cd ..
-   python -m http.server 8080
-   # Visit: http://localhost:8080
-   ```
+Set in `.env` (copy from `.env.example`):
 
-## 📡 API Documentation
+- `FFD_API_KEY`: required for live PM dashboard fetches
+- `PORT`: optional, defaults to `5000`
+- `REMOTE_DATA_URL`: optional URL used by `/api/sync-remote`
 
-### **Core Endpoints**
+### Collector
 
-#### **Current Data**
-```http
-GET /api/ffd-dams           # Current dam data
-GET /api/ffd-headworks      # Headworks grouped by river  
-GET /api/ffd-telemetries    # Combined telemetry data
+- `FFD_API_KEY`: required for PM dashboard endpoint
+- `MAX_ATTEMPTS`: optional, default `1`
+- `DB_PATH`: optional, default `hydro_history.db`
+
+## Local Setup
+
+## 1) Backend
+
+```bash
+cd backend
+python -m venv .venv
 ```
 
-#### **Historical Data**
-```http
-GET /api/history?name=Tarbela&days=7          # Last 7 days
-GET /api/history?name=Kalabagh&hours=24       # Last 24 hours  
-GET /api/history?name=Rasul&start_date=2025-09-01&end_date=2025-09-26
+Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
 ```
 
-#### **System Management**
-```http
-GET /api/health             # System health check
-GET /api/sync-remote        # Sync remote dataset
-GET /api/storage-status     # Database status
+Linux/macOS:
+
+```bash
+source .venv/bin/activate
 ```
 
-### **Response Format**
-```json
-{
-  "success": true,
-  "timestamp": "2025-09-26T10:30:00.000Z",
-  "data": {
-    "dams": [...],
-    "headworks": [...],
-    "headworks_by_river": {
-      "INDUS": [...],
-      "JHELUM": [...]
-    }
-  }
-}
+Install dependencies and run:
+
+```bash
+pip install -r requirements.txt
+python app.py
 ```
 
-## 🎨 UI/UX Features
+Backend default URL:
+- `http://localhost:5000`
 
-### **Modern Design Elements**
-- **Glassmorphism**: Frosted glass effect with backdrop blur
-- **3D Depth**: Multi-layered shadows and transforms
-- **Smooth Animations**: 2.5-3 second progressive line drawing
-- **Micro-interactions**: Hover effects, button animations, loading states
-- **Responsive Layout**: Optimized for desktop, tablet, and mobile
+## 2) Frontend
 
-### **Chart Features**
-- **Grid-free visualization**: Clean axis-only display
-- **Animated line drawing**: Stock-market style progressive rendering
-- **Interactive controls**: Zoom, pan, date range selection
-- **Peak flow indicators**: Automatic calculation and display
-- **Status badges**: Color-coded flood level indicators
+Open `index.html` directly or serve with a local static server.
 
-## 📁 Project Structure
+Example from `waterdashboard` directory:
 
-```
-SU Dashboard/
-├── 📄 index.html                    # Main dashboard UI
-├── 🎨 styles.css                    # Enhanced CSS with 3D effects
-├── ⚡ script.js                     # Frontend logic & animations
-├── ⚙️ config.js                     # API configuration
-├── 🖼️ ndma-logo.png                 # NDMA logo asset
-├── 📊 latest.json                   # Remote dataset cache
-├── 📈 historic2025flooddata_16june.csv # Historical CSV data
-├── 🤖 remote_collector.py           # Data collection script
-├── 📋 .env.example                  # Environment template
-├── 🗃️ hydro_history.db              # SQLite database
-├── 📖 README.md                     # This documentation
-├── 🔧 backend/
-│   ├── 🐍 app.py                    # Flask application
-│   ├── 📦 requirements.txt          # Python dependencies  
-│   └── 🧪 test_ffd_api.py           # API testing utilities
-├── 🚀 .github/workflows/
-│   └── ⏰ remote-collector.yml       # Automated data collection
-└── ⚡ .vscode/
-    └── ⚙️ settings.json              # VS Code configuration
+```bash
+python -m http.server 8080
 ```
 
-## 🚨 Troubleshooting
+Then open:
+- `http://localhost:8080`
 
-### **Common Issues**
+## 3) Run Collector Manually
 
-#### **Charts Not Displaying**
-- Ensure Chart.js libraries are loaded
-- Check browser console for JavaScript errors
-- Verify API endpoints are responding
-- Clear browser cache and refresh
+From `waterdashboard` directory:
 
-#### **API Connection Errors**
-- Verify backend server is running on port 5000
-- Check CORS configuration for cross-origin requests
-- Ensure environment variables are properly set
-- Test API endpoints directly
+```bash
+python remote_collector.py
+```
 
-## 🤝 Contributing
+## GitHub Actions Workflow
 
-### **Development Setup**
-1. Fork the repository
-2. Create feature branch: `git checkout -b feature/enhancement-name`
-3. Make changes with proper testing
-4. Commit with descriptive messages
-5. Push and create pull request
+Workflow file:
+- `.github/workflows/remote-collector.yml`
 
-### **Code Standards**
-- **JavaScript**: ES6+ features, meaningful variable names
-- **CSS**: BEM methodology, CSS custom properties
-- **Python**: PEP 8 compliance, comprehensive error handling
-- **Documentation**: Clear comments and README updates
+Current workflow configuration:
+- Schedule: daily at `03:00 UTC` (`08:00 Karachi`)
+- Runner labels:
+  - `self-hosted`
+  - `linux`
+  - `x64`
+  - `ffd-linux`
+- Logs runner public egress IP using `https://api.ipify.org`
+- Runs collector with `MAX_ATTEMPTS=1`
+- Commits updates to `latest.json` and `hydro_history.db`
 
-## 📜 License
+Important:
+- `FFD_API_KEY` must be configured in repository secrets.
 
-This project is licensed under the MIT License.
+## Self-Hosted Runner Notes
 
-## 🏆 Acknowledgments
+Because PM dashboard requests may be blocked on cloud datacenter IPs, this repository is configured for a self-hosted runner.
 
-- **National Disaster Management Authority (NDMA)** for institutional support
-- **Flood Forecasting Division (FFD)** for providing real-time data APIs  
-- **Chart.js Community** for excellent charting library
-- **Flask Community** for robust web framework
+Checklist:
+- Runner machine stays online at scheduled run time
+- Outbound HTTPS (`443`) to GitHub is available
+- API owner can allowlist your runner egress IP if required
 
----
+## Troubleshooting
 
-**🇵🇰 Built for Pakistan's Water Resource Management**
+### PM dashboard returns HTML "Just a moment..." with 403
 
-*Real-time monitoring • Modern UI • Reliable data collection • Open source*
+This usually indicates Cloudflare/WAF challenge at the source endpoint.
+
+Actions:
+- use self-hosted runner with stable egress IP
+- request API-side IP allowlisting
+- verify `FFD_API_KEY` secret is set and non-empty
+
+### No history shown on charts
+
+Check:
+- backend is running on `http://localhost:5000`
+- `hydro_history.db` exists in `waterdashboard`
+- `GET /api/storage-status` returns valid record counts
+
+### Frontend shows stale data
+
+Use Refresh button and check backend logs for:
+- PM API fetch errors
+- remote sync failures
+- cache fallback behavior
+
+## Notes on Included Test Script
+
+`backend/test_ffd_api.py` is a manual connectivity/debug script. It currently contains a hardcoded token placeholder pattern and should be treated as local diagnostic code only.
+
+Recommended practice:
+- avoid hardcoded credentials
+- load token from environment before sharing or committing updates
+
+## Project Structure
+
+```text
+waterdashboard/
+  .env.example
+  .github/workflows/remote-collector.yml
+  backend/
+    app.py
+    requirements.txt
+    test_ffd_api.py
+  config.js
+  historic2025flooddata_16june.csv
+  index.html
+  latest.json
+  ndma-logo.png
+  README.md
+  remote_collector.py
+  script.js
+  styles.css
+```
