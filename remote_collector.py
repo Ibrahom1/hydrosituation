@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Remote collector script (resilient) with database support.
+"""Remote collector script with database support.
 Data source: pm-dashboard POST endpoint (requires API key) -> derive dams & headworks.
-Graceful behaviour: if attempts fail (DNS / network / auth), exit 0 without updating file (prevents red workflow) and print SKIP.
+Failure behaviour: if attempts fail (DNS / network / auth), raise and exit non-zero so CI fails.
 
 NEW: Also updates SQLite database directly (same structure as Flask app)
 
 Environment variables:
-    FFD_API_KEY  (optional) API key for endpoint https://ffd.pmd.gov.pk/api/pm-dashboard
+    FFD_API_KEY  (required) API key for endpoint https://ffd.pmd.gov.pk/api/pm-dashboard
     MAX_ATTEMPTS (optional) retry attempts for dashboard fetch (default 1)
   DB_PATH      (optional) path to SQLite database (default: hydro_history.db)
 """
