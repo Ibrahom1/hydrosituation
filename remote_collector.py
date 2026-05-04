@@ -80,7 +80,6 @@ def store_to_database(dams_data, headworks_data):
     if not dams_data.get('dams') and not headworks_data.get('headworks'):
         print('[DB] No data to store to database')
         return
-
     with DB_LOCK:
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
@@ -136,19 +135,23 @@ def store_to_database(dams_data, headworks_data):
             if has_changed(row):
                 all_rows.append(row)
 
-        if all_rows:
-            cur.executemany("""
-                INSERT INTO telemetry_history (
-                    name, type, inflow_discharge, outflow_discharge, reservoir_level, storage,
-                    status, inflow_trend, outflow_trend, recorded_at, fetched_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
-            """, all_rows)
-            conn.commit()
-            print(f'[DB] Stored {len(all_rows)} new records')
-        else:
-            print('[DB] No changes detected, skipping insert.')
-
-        conn.close()
+        try:
+            if all_rows:
+                cur.executemany("""
+                    INSERT INTO telemetry_history (
+                        name, type, inflow_discharge, outflow_discharge, reservoir_level, storage,
+                        status, inflow_trend, outflow_trend, recorded_at, fetched_at
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """, all_rows)
+                conn.commit()
+                print(f'[DB] Stored {len(all_rows)} new records')
+            else:
+                print('[DB] No changes detected, skipping insert.')
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
 
 def retry_fetch_json(method, url, **kwargs):
@@ -207,6 +210,9 @@ def fetch_via_dashboard():
     data = retry_fetch_json('POST', PM_DASHBOARD, data={'API_KEY': API_KEY})
     if 'data' not in data or not isinstance(data['data'], list):
         raise RuntimeError('Unexpected pm-dashboard structure')
+    if not data['data']:
+        # No telemetry items returned -> treat as failure so run doesn't update outputs
+        raise RuntimeError('pm-dashboard returned no data')
     dams, headworks = categorize_from_telemetries(data['data'])
     return {'dams': dams['dams']}, {'headworks': headworks['headworks']}
 
@@ -215,22 +221,22 @@ def write_payload_and_db(dams, headworks):
     # Swap lat/long for correct display (FFD API has them reversed)
     swap_lat_long(dams.get('dams', []))
     swap_lat_long(headworks.get('headworks', []))
-
-    # Write JSON file
+    # Prepare payload but don't write it yet. Ensure DB write succeeds first.
     payload = {
         'generated_at': datetime.datetime.utcnow().isoformat() + 'Z',
-        'dams': dams,              # {"dams": [...]}
-        'headworks': headworks     # {"headworks": [...]}
+        'dams': dams,
+        'headworks': headworks
     }
-    with open(OUT_FILE, 'w', encoding='utf-8') as f:
-        json.dump(payload, f, ensure_ascii=False)
-    print(f'[JSON] Wrote {OUT_FILE}: dams={len(dams.get("dams", []))} headworks={len(headworks.get("headworks", []))}')
 
-    # Store to database
-    try:
-        store_to_database(dams, headworks)
-    except Exception as db_err:
-        print(f'[DB-WARN] Database storage failed: {db_err}. JSON file still created.')
+    # Store to database first; any DB error should abort the run and prevent JSON update.
+    store_to_database(dams, headworks)
+
+    # If DB storage succeeded, write JSON atomically to avoid partial updates.
+    tmp_file = OUT_FILE + '.tmp'
+    with open(tmp_file, 'w', encoding='utf-8') as f:
+        json.dump(payload, f, ensure_ascii=False)
+    os.replace(tmp_file, OUT_FILE)
+    print(f'[JSON] Wrote {OUT_FILE}: dams={len(dams.get("dams", []))} headworks={len(headworks.get("headworks", []))}')
 
 def write_placeholder(reason):
     """Create a placeholder latest.json so the file exists for the dashboard on first run."""
@@ -249,34 +255,16 @@ def write_placeholder(reason):
     print(f'[OK] Wrote placeholder {OUT_FILE} (no data this run).')
 
 def main():
-    # Initialize database
-    try:
-        init_db()
-    except Exception as db_init_err:
-        print(f'[DB-WARN] Database initialization failed: {db_init_err}. Continuing with JSON-only mode.')
-    
-    try:
-        try:
-            print('[INFO] Collecting from pm-dashboard endpoint...', flush=True)
-            dams, headworks = fetch_via_dashboard()
-            write_payload_and_db(dams, headworks)
-            print('[DONE] Collected via pm-dashboard (JSON + DB updated).', flush=True)
-            return 0
-        except Exception as dash_err:
-            print(f'[WARN] pm-dashboard collection failed: {dash_err}', flush=True)
-            print('[SKIP] No data collected this run (network, auth, or API issue). Workflow will succeed without update.', flush=True)
-            write_placeholder(str(dash_err))
-            return 0  # graceful success
-    except Exception as fatal:  # absolutely last resort
-        print(f'[FAIL-GRACEFUL] Unexpected top-level error: {fatal}', flush=True)
-        print('[SKIP] Exiting with code 0 to keep workflow green.', flush=True)
-        return 0
+    # Fail fast: DB must be initialized for safe runs.
+    init_db()
+
+    print('[INFO] Collecting from pm-dashboard endpoint...', flush=True)
+    dams, headworks = fetch_via_dashboard()
+    write_payload_and_db(dams, headworks)
+    print('[DONE] Collected via pm-dashboard (JSON + DB updated).', flush=True)
+    return 0
 
 if __name__ == '__main__':
-    # Always exit 0 (main already returns 0 in all paths) to prevent red workflow on transient issues.
+    # Exit with the code returned by main() so failures propagate to CI/workflow.
     code = main()
-    try:
-        sys.exit(code)
-    except SystemExit:
-        # In some rare cases (older Python peculiarities) re-raise ensures correct exit; but force 0.
-        os._exit(0)
+    sys.exit(code)
