@@ -6,6 +6,8 @@ import logging
 from datetime import datetime, timedelta
 import sqlite3
 import os
+import glob
+import re
 from threading import Lock
 # Scheduler not used in read-only mode
 import csv
@@ -57,6 +59,8 @@ APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.abspath(os.path.join(APP_DIR, '..', 'hydro_history.db'))
 # Historical CSV path (June 15 to Aug 18, 2025)
 CSV_PATH = os.path.abspath(os.path.join(APP_DIR, '..', 'historic2025flooddata_16june.csv'))
+# Historical river CSVs (2014 to 2024)
+COMBINED_CSV_PATTERN = os.path.abspath(os.path.join(APP_DIR, '..', 'combined_river_data_*.csv'))
 # Optional remote JSON dataset URL (produced by remote collector running every 6h)
 REMOTE_DATA_URL = os.environ.get('REMOTE_DATA_URL', '').strip()
 DB_LOCK = Lock()
@@ -271,9 +275,9 @@ def fetch_history(name, hours=24):
     days = max(1, hours // 24)
     return fetch_history_extended(name, days)
 
-# ---------------- CSV historical dataset (June 15 to Aug 18, 2025) ----------------
+# ---------------- CSV historical datasets (2014 to 2025) ----------------
 
-CSV_START_DT = datetime(2025, 6, 15, 0, 0, 0)
+CSV_START_DT = datetime(2014, 1, 1, 0, 0, 0)
 CSV_END_DT = datetime(2025, 8, 18, 23, 59, 59)
 DB_START_DT = datetime(2025, 8, 19, 0, 0, 0)
 
@@ -286,36 +290,71 @@ FFD_TO_CSV_NAME_MAP = {
     'MANGLA': ['MANGLA'],
     # Common headworks/barrages
     'KALABAGH': ['KALABAGH'],
-    'CHASHMA': ['CHASHMA'],
-    'TAUNSA': ['TAUNSA'],
-    'GUDDU': ['GUDDU'],
-    'SUKKUR': ['SUKKAR'],
-    'KOTRI': ['KOTRI'],
+    'CHASHMA': ['CHASHMA', 'CHASHMA BARRAGE'],
+    'TAUNSA': ['TAUNSA', 'TAUNSA BARRAGE'],
+    'GUDDU': ['GUDDU', 'GUDDU BARRAGE'],
+    'SUKKUR': ['SUKKUR', 'SUKKAR', 'SUKKUR BARRAGE'],
+    'KOTRI': ['KOTRI', 'KOTRI BARRAGE'],
     'KOTLI': ['KOTLI'],
     'CHATTAR KLASS': ['CHATTAR KALAS'],
-    'RASUL': ['RASUL'],
-    'MARALA': ['MARALA'],
-    'KHANKI': ['KHANKI'],
-    'Q.ABAD': ['QADIRABAD'],
-    'QADIRABAD': ['QADIRABAD'],
+    'RASUL': ['RASUL', 'RASUL BARRAGE'],
+    'MARALA': ['MARALA', 'MARALA H/W'],
+    'KHANKI': ['KHANKI', 'KHANKI H/W'],
+    'Q.ABAD': ['QADIRABAD', 'QADIRABAD BARRAGE'],
+    'QADIRABAD': ['QADIRABAD', 'QADIRABAD BARRAGE'],
     'CHINIOT': ['CHINIOT BRIDGE'],
-    'TRIMMU': ['TRIMMU'],
-    'PANJNAD': ['PUNJNAD'],
-    'PUNJNAD': ['PUNJNAD'],
+    'TRIMMU': ['TRIMMU', 'TRIMMU H/W', 'TRIMMU H/W-'],
+    'PANJNAD': ['PANJNAD', 'PUNJNAD', 'PANJNAD H/W', 'PUNJNAD H/W'],
+    'PUNJNAD': ['PANJNAD', 'PUNJNAD', 'PANJNAD H/W', 'PUNJNAD H/W'],
     'JASSAR': ['JASSAR'],
     'SHAHDARA': ['SHAHDARA'],
-    'BALLOKI': ['BALLOKI'],
-    'SIDHNAI': ['SIDHNAI'],
-    'SULEMANKI': ['SULEMANKI'],
-    'ISLAM': ['ISLAM'],
+    'BALLOKI': ['BALLOKI', 'BALLOKI H/W'],
+    'SIDHNAI': ['SIDHNAI', 'SIDHNAI H/W'],
+    'BHAKRA': ['BHAKRA', 'BHAKARA', 'BHAKARA**'],
+    'BHAKARA': ['BHAKRA', 'BHAKARA', 'BHAKARA**'],
+    'SULEMANKI': ['SULEMANKI', 'SULEIMANKI', 'SULEIMANKI H/W'],
+    'ISLAM': ['ISLAM', 'ISLAM H/W'],
     'G.S WALA': ['G.S WALA*', 'G.S WALA', 'GS WALA', 'GANDA SINGH WALA'],
     'GANDA SINGH WALA': ['G.S WALA*', 'G.S WALA', 'GS WALA'],
+    'KHAIRABAD': ['KHAIRABAD'],
     'ATTOCK': ['KHAIRABAD'],
     'KABUL': ['NOWSHERA','Nowshehra', 'NOWSHEHRA']
 }
 
 def normalize_name(s: str) -> str:
-    return s.upper().strip()
+    """Normalize FFD/API and CSV station names to comparable canonical names."""
+    if s is None:
+        return ''
+    text = str(s).upper().strip()
+    if not text:
+        return ''
+    text = text.replace('**', '').replace('*', '')
+    text = re.sub(r'\bH\s*/\s*W\b-?', ' ', text)
+    text = re.sub(r'\bBARRAGE\b', ' ', text)
+    text = re.sub(r'\bHEAD\s*WORKS?\b', ' ', text)
+    text = text.replace('.', ' ')
+    text = re.sub(r'[^A-Z0-9]+', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    compact = re.sub(r'[^A-Z0-9]+', '', text)
+    aliases = {
+        'QABAD': 'QADIRABAD',
+        'QADIRABAD': 'QADIRABAD',
+        'SUKKAR': 'SUKKUR',
+        'SUKKUR': 'SUKKUR',
+        'SULEIMANKI': 'SULEMANKI',
+        'SULEMANKI': 'SULEMANKI',
+        'PUNJNAD': 'PANJNAD',
+        'PANJNAD': 'PANJNAD',
+        'BHAKARA': 'BHAKRA',
+        'BHAKRA': 'BHAKRA',
+        'GSWALA': 'GANDA SINGH WALA',
+        'GANDASINGHWALA': 'GANDA SINGH WALA',
+        'CHATTARKLASS': 'CHATTAR KALAS',
+        'CHATTARKALAS': 'CHATTAR KALAS',
+        'NOWSHEHRA': 'NOWSHERA',
+        'NOWSHERA': 'NOWSHERA'
+    }
+    return aliases.get(compact, text)
 
 def parse_csv_number(val: str) -> Optional[float]:
     """Parse discharge columns from CSV: handle NR, Nil, -, blanks, commas."""
@@ -348,81 +387,274 @@ def parse_csv_number(val: str) -> Optional[float]:
             return None
 
 def csv_recorded_stamp(dt: datetime) -> str:
-    """Convert datetime to DB-like recorded_at string but keep minutes: '15-Jun 12:30 PKT'."""
+    """Convert datetime to a frontend-parseable timestamp with an explicit year."""
     month_map = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-    return f"{dt.day:02d}-{month_map[dt.month-1]} {dt.hour:02d}:{dt.minute:02d} PKT"
+    return f"{dt.day:02d}-{month_map[dt.month-1]}-{dt.year} {dt.hour:02d}:{dt.minute:02d} PKT"
+
+def get_csv_history_paths() -> List[str]:
+    """Return historical CSV files in chronological load order."""
+    paths = sorted(glob.glob(COMBINED_CSV_PATTERN))
+    if os.path.exists(CSV_PATH):
+        paths.append(CSV_PATH)
+    return paths
+
+def extract_csv_source_year(path: str) -> Optional[int]:
+    match = re.search(r'(20\d{2})', os.path.basename(path))
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except Exception:
+        return None
+
+def normalize_csv_header(value: str) -> str:
+    return re.sub(r'[^a-z0-9]+', '', str(value or '').lower())
+
+def csv_row_lookup(row: Dict[str, str]) -> Dict[str, str]:
+    return {
+        normalize_csv_header(key): val
+        for key, val in row.items()
+        if key is not None
+    }
+
+def csv_lookup_value(lookup: Dict[str, str], *candidate_headers: str) -> str:
+    for header in candidate_headers:
+        value = lookup.get(normalize_csv_header(header))
+        if value is not None:
+            return value
+    return ''
+
+def csv_row_value(row: Dict[str, str], *candidate_headers: str) -> str:
+    return csv_lookup_value(csv_row_lookup(row), *candidate_headers)
+
+@lru_cache(maxsize=1024)
+def parse_csv_time(value: str):
+    raw = str(value or '').strip()
+    if not raw:
+        return datetime(1900, 1, 1, 0, 0).time()
+    raw = raw.replace('\xa0', ' ')
+    raw = re.sub(r'\bhrs?\.?\b', '', raw, flags=re.IGNORECASE)
+    raw = re.sub(r'\s+', ' ', raw).strip()
+    for fmt in ('%H:%M:%S', '%H:%M', '%I:%M:%S %p', '%I:%M %p', '%I %p'):
+        try:
+            return datetime.strptime(raw, fmt).time()
+        except Exception:
+            continue
+    return datetime(1900, 1, 1, 0, 0).time()
+
+def parse_slash_csv_date(raw: str, source_year: Optional[int] = None) -> Optional[datetime]:
+    match = re.match(r'^(\d{1,2})/(\d{1,2})/(\d{2,4})(?:\s+(.+))?$', raw, re.IGNORECASE)
+    if not match:
+        return None
+    first = int(match.group(1))
+    second = int(match.group(2))
+    year = int(match.group(3))
+    if year < 100:
+        year += 2000
+    time_part = match.group(4) or ''
+    parsed_time = parse_csv_time(time_part)
+
+    # The 2014 export mixes month/day slashes for days 1-12 with day-month
+    # dashes after that. Other slash exports are treated as day/month.
+    if first > 12:
+        day, month = first, second
+    elif second > 12:
+        month, day = first, second
+    elif source_year == 2014:
+        month, day = first, second
+    else:
+        day, month = first, second
+
+    try:
+        return datetime(year, month, day, parsed_time.hour, parsed_time.minute, parsed_time.second)
+    except Exception:
+        return None
+
+@lru_cache(maxsize=50000)
+def parse_csv_datetime(date_value: str, time_value: str = '', source_year: Optional[int] = None) -> Optional[datetime]:
+    date_raw = str(date_value or '').replace('\xa0', ' ').strip()
+    time_raw = str(time_value or '').replace('\xa0', ' ').strip()
+    if not date_raw:
+        return None
+
+    if time_raw and not re.search(r'\d{1,2}:\d{2}', date_raw):
+        parsed_date = parse_csv_datetime(date_raw, '', source_year)
+        if not parsed_date:
+            return None
+        parsed_time = parse_csv_time(time_raw)
+        return datetime(
+            parsed_date.year,
+            parsed_date.month,
+            parsed_date.day,
+            parsed_time.hour,
+            parsed_time.minute,
+            parsed_time.second
+        )
+
+    raw = re.sub(r'\s+', ' ', date_raw).strip()
+    raw = re.sub(r'\bhrs?\.?\b', '', raw, flags=re.IGNORECASE).strip()
+
+    slash_dt = parse_slash_csv_date(raw, source_year)
+    if slash_dt:
+        return slash_dt
+
+    likely_formats = []
+    if re.match(r'^\d{4}-\d{1,2}-\d{1,2}', raw):
+        likely_formats = ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d')
+    elif re.match(r'^\d{1,2}-[A-Za-z]{3}-\d{2}\b', raw):
+        likely_formats = ('%d-%b-%y %H:%M:%S', '%d-%b-%y %H:%M', '%d-%b-%y')
+    elif re.match(r'^\d{1,2}-[A-Za-z]{3}-\d{4}\b', raw):
+        likely_formats = ('%d-%b-%Y %H:%M:%S', '%d-%b-%Y %H:%M', '%d-%b-%Y')
+    elif re.match(r'^\d{1,2}-\d{1,2}-\d{4}\b', raw):
+        likely_formats = ('%d-%m-%Y %H:%M:%S', '%d-%m-%Y %H:%M', '%d-%m-%Y')
+
+    fallback_formats = (
+        '%Y-%m-%d %H:%M:%S',
+        '%Y-%m-%d %H:%M',
+        '%Y-%m-%d',
+        '%d-%b-%Y %H:%M:%S',
+        '%d-%b-%Y %H:%M',
+        '%d-%b-%Y',
+        '%d-%b-%y %H:%M:%S',
+        '%d-%b-%y %H:%M',
+        '%d-%b-%y',
+        '%d-%m-%Y %H:%M:%S',
+        '%d-%m-%Y %H:%M',
+        '%d-%m-%Y'
+    )
+
+    for fmt in (likely_formats or fallback_formats):
+        try:
+            return datetime.strptime(raw, fmt)
+        except Exception:
+            continue
+
+    try:
+        parsed = datetime.fromisoformat(raw)
+        return parsed.replace(tzinfo=None)
+    except Exception:
+        return None
 
 @lru_cache(maxsize=1)
 def load_csv_history():
     """Load CSV into memory: returns dict { CSV_NAME: [ {dt, recorded, inflow, outflow, remarks} ] }"""
     data: Dict[str, List[dict]] = {}
-    if not os.path.exists(CSV_PATH):
-        logging.warning(f"Historical CSV not found at {CSV_PATH}")
+    csv_paths = get_csv_history_paths()
+    if not csv_paths:
+        logging.warning(f"No historical CSV files found at {COMBINED_CSV_PATTERN} or {CSV_PATH}")
         return data
-    try:
-        with open(CSV_PATH, 'r', encoding='utf-8-sig') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                try:
-                    site = normalize_name(row.get('Gauge Site', ''))
-                    date_str = row.get('Date', '').strip()
-                    time_str = row.get('Time', '').strip()
-                    if not site or not date_str or not time_str:
-                        continue
-                    # Parse date like '15-Jun-2025'
-                    dt_date = datetime.strptime(date_str, '%d-%b-%Y')
-                    # Parse time like '12:00 Hrs' or '23:59 Hrs'
-                    tpart = time_str.split()[0]  # 'HH:MM'
-                    dt_time = datetime.strptime(tpart, '%H:%M').time()
-                    dt = datetime(dt_date.year, dt_date.month, dt_date.day, dt_time.hour, dt_time.minute, 0)
-                    if not (CSV_START_DT <= dt <= CSV_END_DT):
-                        continue
-                    inflow = parse_csv_number(row.get('Up Stream Discharge'))
-                    outflow = parse_csv_number(row.get('Down Stream Discharge'))
-                    remarks = (row.get('Remarks') or '').strip()
-                    rec = {
-                        'dt': dt,
-                        'recorded': csv_recorded_stamp(dt),
-                        'inflow': inflow,
-                        'outflow': outflow,
-                        'remarks': remarks
-                    }
-                    data.setdefault(site, []).append(rec)
-                except Exception as ex:
-                    logging.debug(f"Skipping CSV row due to parse error: {ex}")
-        # Sort each site's records by datetime
-        for k in list(data.keys()):
-            data[k].sort(key=lambda r: r['dt'])
-        logging.info(f"Loaded CSV history for {len(data)} gauge sites from {CSV_PATH}")
-        return data
-    except Exception as e:
-        logging.error(f"Failed to load CSV history: {e}")
-        return data
+
+    total_rows = 0
+    loaded_rows = 0
+    skipped_rows = 0
+    for csv_path in csv_paths:
+        source_file = os.path.basename(csv_path)
+        source_year = extract_csv_source_year(csv_path)
+        force_source_year = source_file.startswith('combined_river_data_') and source_year is not None
+        try:
+            with open(csv_path, 'r', encoding='utf-8-sig', newline='') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    total_rows += 1
+                    try:
+                        lookup = csv_row_lookup(row)
+                        site = normalize_name(csv_lookup_value(lookup, 'Gauge Site', 'Gauge Sites'))
+                        date_str = csv_lookup_value(lookup, 'Date')
+                        time_str = csv_lookup_value(lookup, 'Time')
+                        if not site or not date_str:
+                            skipped_rows += 1
+                            continue
+                        dt = parse_csv_datetime(date_str, time_str, source_year)
+                        if not dt or not (CSV_START_DT <= dt <= CSV_END_DT):
+                            skipped_rows += 1
+                            continue
+                        if force_source_year and dt.year != source_year:
+                            try:
+                                dt = dt.replace(year=source_year)
+                            except ValueError:
+                                skipped_rows += 1
+                                continue
+                        inflow = parse_csv_number(csv_lookup_value(
+                            lookup,
+                            'Up Stream Discharge',
+                            'Up Stream',
+                            'Upstream'
+                        ))
+                        outflow = parse_csv_number(csv_lookup_value(
+                            lookup,
+                            'Down Stream Discharge',
+                            'Down Stream',
+                            'Downstream'
+                        ))
+                        if inflow is None and outflow is None:
+                            skipped_rows += 1
+                            continue
+                        rec = {
+                            'dt': dt,
+                            'recorded': csv_recorded_stamp(dt),
+                            'river': (csv_lookup_value(lookup, 'River', 'Rivers') or '').strip(),
+                            'inflow': inflow,
+                            'outflow': outflow,
+                            'remarks': (csv_lookup_value(lookup, 'Remarks') or '').strip(),
+                            'source': source_file
+                        }
+                        data.setdefault(site, []).append(rec)
+                        loaded_rows += 1
+                    except Exception as ex:
+                        skipped_rows += 1
+                        logging.debug(f"Skipping CSV row in {os.path.basename(csv_path)} due to parse error: {ex}")
+        except Exception as e:
+            logging.error(f"Failed to load CSV history from {csv_path}: {e}")
+
+    # Sort each site's records by datetime.
+    for k in list(data.keys()):
+        data[k].sort(key=lambda r: r['dt'])
+    logging.info(
+        "Loaded CSV history for %s gauge sites from %s files (%s/%s rows loaded, %s skipped)",
+        len(data),
+        len(csv_paths),
+        loaded_rows,
+        total_rows,
+        skipped_rows
+    )
+    return data
 
 def csv_sites_for_ffd_name(ffd_name: str) -> List[str]:
     """Return list of CSV gauge-site names that correspond to an FFD name using mapping and heuristics."""
     if not ffd_name:
         return []
-    n = normalize_name(ffd_name).replace(' DAM', '')  # remove DAM suffix when present
-    # Direct mapping
+    n = normalize_name(ffd_name).replace(' DAM', '').strip()
+
+    def unique_normalized(values) -> List[str]:
+        seen = set()
+        result = []
+        for value in values:
+            normalized = normalize_name(value)
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                result.append(normalized)
+        return result
+
     if n in FFD_TO_CSV_NAME_MAP:
-        return [normalize_name(x) for x in FFD_TO_CSV_NAME_MAP[n]]
+        return unique_normalized(FFD_TO_CSV_NAME_MAP[n])
+
     # Fallback alias replacements (normalize common variants)
     aliases = {
-        'SUKKUR': 'SUKKAR',
+        'SUKKAR': 'SUKKUR',
         'Q.ABAD': 'QADIRABAD',
         'Q ABAD': 'QADIRABAD',
         'CHATTAR KLASS': 'CHATTAR KALAS',
         'CHINIOT': 'CHINIOT BRIDGE',
-        'PANJNAD': 'PUNJNAD',
+        'PUNJNAD': 'PANJNAD',
         'GANDA SINGH WALA': 'G.S WALA*',
         'TARBELA DAM': 'TARBELA',
         'MANGLA DAM': 'MANGLA',
         'ATTOCK': 'KHAIRABAD',
-        'KABUL': ['NOWSHERA','Nowshehra', 'NOWSHEHRA']
+        'KABUL': ['NOWSHERA', 'NOWSHEHRA']
     }
     if n in aliases:
-        return [normalize_name(aliases[n])]
+        values = aliases[n] if isinstance(aliases[n], list) else [aliases[n]]
+        return unique_normalized(values)
     # Heuristic: exact same name
     return [n]
 

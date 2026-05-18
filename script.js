@@ -5,8 +5,8 @@ let chartsInstances = {};
 let currentView = { dams: 'chart', headworks: 'chart' };
 // Global date range state (null values mean default last 15 days)
 let selectedDateRange = { start: null, end: null };
-// Earliest data available overall (CSV from 15-Jun-2025); DB starts 19-Aug-2025
-const CSV_MIN_DATE = '2025-06-15';
+// Earliest data available overall (combined CSV history starts in 2014); DB starts 19-Aug-2025
+const CSV_MIN_DATE = '2014-01-01';
 const DB_MIN_DATE = '2025-08-19';
 // Cache of computed peak outflow per site: name -> { value: number, time: string }
 const peakCache = new Map();
@@ -222,6 +222,7 @@ function formatHistoryTimestampForDisplay(timestamp, fallbackYear = null) {
     const date = parsed.date;
     const month = date.toLocaleString('en-US', { month: 'short' });
     const day = date.getDate();
+    const year = date.getFullYear();
     const hours = date.getHours();
     const minutes = date.getMinutes();
     const ampm = hours >= 12 ? 'PM' : 'AM';
@@ -229,7 +230,7 @@ function formatHistoryTimestampForDisplay(timestamp, fallbackYear = null) {
     const time = minutes === 0 ? `${hour12} ${ampm}` : `${hour12}:${String(minutes).padStart(2, '0')} ${ampm}`;
     const zone = parsed.timezone ? ` ${parsed.timezone}` : '';
 
-    return `${day} ${month} ${time}${zone}`;
+    return `${day} ${month} ${year} ${time}${zone}`;
 }
 
 function mapHistorySeries(series, fallbackYear = null) {
