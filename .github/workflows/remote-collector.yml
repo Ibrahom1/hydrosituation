@@ -45,7 +45,7 @@ jobs:
           if [ -n "$FFD_API_KEY" ]; then
             echo "FFD_API_KEY secret detected (len=${#FFD_API_KEY})"
           else
-            echo "No FFD_API_KEY secret configured. Primary collector will fail and HTML fallback will run in this workflow."
+            echo "No FFD_API_KEY secret configured. API collection will be unavailable and HTML fallback will run in this workflow."
           fi
 
       - name: Restore database from previous run
@@ -56,7 +56,7 @@ jobs:
             echo "No existing database - will create new one"
           fi
 
-      - name: Run enhanced collector (JSON + Database)
+      - name: Run primary API collector (JSON + Database)
         id: primary_collector
         continue-on-error: true
         env:
@@ -66,13 +66,13 @@ jobs:
           echo "Starting data collection with database support..."
           python remote_collector.py
 
-      - name: Fetch fresh FFD river-state HTML fallback
+      - name: Fetch fresh FFD river-state HTML when API is unavailable
         if: steps.primary_collector.outcome == 'failure'
         run: |
-          echo "Primary collector failed. Fetching fresh public FFD river-state HTML..."
+          echo "Primary API collector could not fetch data. Fetching fresh public FFD river-state HTML..."
           python ffd_html_fallback_collector.py --fetch-html river-state.html
 
-      - name: Upload raw FFD HTML fallback artifact
+      - name: Upload raw FFD HTML artifact
         if: steps.primary_collector.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
