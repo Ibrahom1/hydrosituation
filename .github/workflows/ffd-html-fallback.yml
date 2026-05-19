@@ -34,9 +34,21 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
+      - name: Fetch fresh FFD river-state HTML
+        run: |
+          python ffd_html_fallback_collector.py --fetch-html river-state.html
+
+      - name: Upload raw FFD HTML artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffd-river-state-html
+          path: river-state.html
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Run HTML fallback collector (JSON + Database)
         run: |
-          python ffd_html_fallback_collector.py
+          python ffd_html_fallback_collector.py --html-file river-state.html --min-stations 1
 
       - name: Check fallback collection results
         run: |
