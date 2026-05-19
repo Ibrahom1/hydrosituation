@@ -656,7 +656,13 @@ function createDataTable(data, sectionType) {
     const allParams = new Set();
     data.forEach(item => {
         Object.keys(item).forEach(key => {
-            if (!['name', 'location', 'id', 'lat', 'long', 'inflow_time', 'outflow_time', 'inflow_trend', 'outflow_trend'].includes(key)) {
+            if (![
+                'name', 'location', 'id', 'lat', 'long', 'latitude', 'longitude',
+                'area_name', 'height', 'level',
+                'cyp_discharge', 'cyp_status', 'cyp_date',
+                'forecast_status', 'forecast_qual', 'forecast_quant',
+                'inflow_time', 'outflow_time', 'inflow_trend', 'outflow_trend'
+            ].includes(key)) {
                 const value = item[key];
                 if (value && value !== '' && !isNaN(parseFloat(String(value).replace(/,/g, '')))) {
                     allParams.add(key);

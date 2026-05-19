@@ -1,0 +1,109 @@
+name: FFD HTML Fallback Collector
+
+on:
+  workflow_run:
+    workflows:
+      - Remote Data Collector (Daily) - JSON + Database
+    types:
+      - completed
+  workflow_dispatch: {}
+
+jobs:
+  fallback-collect:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'failure'
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - ffd-linux
+    permissions:
+      contents: write
+      actions: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Fetch FFD river-state HTML
+        run: |
+          python ffd_html_fallback_collector.py --fetch-html river-state.html
+
+      - name: Upload raw FFD HTML artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffd-river-state-html
+          path: river-state.html
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Validate HTML parser
+        run: |
+          python ffd_html_fallback_collector.py --html-file river-state.html --dry-run --min-stations 1
+
+      - name: Run HTML fallback collector (JSON + Database)
+        run: |
+          python ffd_html_fallback_collector.py --html-file river-state.html
+
+      - name: Check fallback collection results
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sqlite3
+
+          with open('latest.json', 'r', encoding='utf-8') as handle:
+              payload = json.load(handle)
+
+          dams = payload.get('dams', {}).get('dams', [])
+          headworks = payload.get('headworks', {}).get('headworks', [])
+          total = len(dams) + len(headworks)
+          print(f'latest.json source={payload.get("source")} dams={len(dams)} headworks={len(headworks)} total={total}')
+          if total == 0:
+              raise SystemExit('latest.json has no fallback station records')
+
+          popup_rows = sum(1 for item in dams + headworks if item.get('height') or item.get('cyp_discharge'))
+          print(f'popup metadata rows available for {popup_rows} stations')
+          if popup_rows == 0:
+              raise SystemExit('No popup-only metadata found in fallback payload')
+
+          if not os.path.exists('hydro_history.db'):
+              raise SystemExit('hydro_history.db not found')
+
+          conn = sqlite3.connect('hydro_history.db')
+          try:
+              columns = [row[1] for row in conn.execute('PRAGMA table_info(telemetry_history)')]
+              if 'cyp_discharge' in columns or 'height' in columns:
+                  raise SystemExit('Popup-only fields were added to telemetry_history unexpectedly')
+              count = conn.execute('SELECT COUNT(*) FROM telemetry_history').fetchone()[0]
+              print(f'hydro_history.db telemetry_history records={count}')
+              if count == 0:
+                  raise SystemExit('telemetry_history has no records')
+          finally:
+              conn.close()
+          PY
+
+      - name: Commit fallback JSON and Database
+        run: |
+          git config user.name 'github-actions'
+          git config user.email 'actions@github.com'
+
+          git add latest.json
+          git add -f hydro_history.db
+
+          if git diff --cached --quiet; then
+            echo "No fallback changes to commit"
+          else
+            git commit -m "chore: fallback update dataset & database $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            git push
+            echo "Successfully committed and pushed fallback updates"
+          fi
