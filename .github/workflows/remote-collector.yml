@@ -102,11 +102,7 @@ jobs:
           if [ -f hydro_history.db ]; then
             echo "Database exists"
             echo "   Size: $(stat -c%s hydro_history.db) bytes"
-            RECORD_COUNT=$(sqlite3 hydro_history.db 'SELECT COUNT(*) FROM telemetry_history;' 2>/dev/null)
-            if [ -z "$RECORD_COUNT" ]; then
-              echo "Cannot query telemetry_history record count"
-              exit 1
-            fi
+            RECORD_COUNT=$(python -c "import sqlite3; conn=sqlite3.connect('hydro_history.db'); print(conn.execute('SELECT COUNT(*) FROM telemetry_history;').fetchone()[0]); conn.close()")
             echo "   Record count: $RECORD_COUNT"
           else
             echo "Database not found"
