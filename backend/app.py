@@ -57,6 +57,7 @@ RIVER_HEADWORKS_MAP = {
 # Resolve DB path relative to this file so it works no matter where app.py is launched from
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.abspath(os.path.join(APP_DIR, '..', 'hydro_history.db'))
+DAILY_WATER_DB_PATH = os.path.abspath(os.path.join(APP_DIR, '..', '..', 'data', 'daily_water_situation.sqlite'))
 # Historical CSV path (June 15 to Aug 18, 2025)
 CSV_PATH = os.path.abspath(os.path.join(APP_DIR, '..', 'historic2025flooddata_16june.csv'))
 # Historical river CSVs (2014 to 2024)
@@ -1098,8 +1099,138 @@ def storage_status():
         'updater': 'remote_collector'
     })
 
+@app.route('/api/daily-situation')
+def get_daily_situation():
+    station_name = request.args.get('station')
+    if not station_name:
+        return jsonify({'success': False, 'error': 'Missing station parameter'}), 400
+        
+    if not os.path.exists(DAILY_WATER_DB_PATH):
+        return jsonify({'success': False, 'error': f'Database not found at {DAILY_WATER_DB_PATH}'}), 404
+        
+    try:
+        conn = sqlite3.connect(DAILY_WATER_DB_PATH)
+        cursor = conn.cursor()
+        
+        # Get the latest report date and calculate yesterday as exactly 1 day prior
+        cursor.execute("SELECT report_date FROM daily_water_reports ORDER BY report_date DESC LIMIT 1;")
+        dates = [r[0] for r in cursor.fetchall()]
+        
+        if len(dates) < 1:
+            conn.close()
+            return jsonify({'success': False, 'error': 'No daily water report dates in database'}), 500
+            
+        d1 = dates[0]
+        latest_dt = datetime.strptime(d1, "%Y-%m-%d")
+        yesterday_dt = latest_dt - timedelta(days=1)
+        d2 = yesterday_dt.strftime("%Y-%m-%d")
+        
+        # Normalize name for generic matching
+        norm = station_name.lower().strip()
+        norm = re.sub(r'\s+dam$', '', norm)
+        norm = re.sub(r'\s+barrage$', '', norm)
+        norm = norm.strip()
+        
+        def fetch_all_dict(query, params):
+            cursor.execute(query, params)
+            cols = [col[0] for col in cursor.description]
+            return [dict(zip(cols, row)) for row in cursor.fetchall()]
+            
+        skardu_temp = []
+        res_levels = []
+        res_storages = []
+        barrages_discharge = []
+        river_inflows = []
+        
+        # 1. Skardu temperature
+        if "skardu" in norm:
+            skardu_temp = fetch_all_dict(
+                "SELECT * FROM skardu_temperature WHERE recorded_date IN (?, ?) ORDER BY recorded_date DESC, row_order ASC;",
+                (d1, d2)
+            )
+            
+        # 2. Reservoir Levels & Storages
+        res_name = None
+        if "tarbela" in norm:
+            res_name = "Tarbela"
+        elif "mangla" in norm:
+            res_name = "Mangla"
+        elif "chashma" in norm:
+            res_name = "Chashma"
+            
+        if res_name:
+            res_levels = fetch_all_dict(
+                "SELECT * FROM reservoir_levels WHERE reservoir = ? AND recorded_date IN (?, ?) ORDER BY recorded_date DESC;",
+                (res_name, d1, d2)
+            )
+            res_storages = fetch_all_dict(
+                "SELECT * FROM reservoir_storages WHERE reservoir = ? AND recorded_date IN (?, ?) ORDER BY recorded_date DESC;",
+                (res_name, d1, d2)
+            )
+            
+        # 3. Barrages Discharge
+        barrage_name = None
+        if "guddu" in norm:
+            barrage_name = "Guddu"
+        elif "kotri" in norm:
+            barrage_name = "Kotri"
+        elif "panjnad" in norm:
+            barrage_name = "Panjnad"
+        elif "sukkur" in norm:
+            barrage_name = "Sukkur"
+        elif "taunsa" in norm:
+            barrage_name = "Taunsa"
+        elif "trimmu" in norm:
+            barrage_name = "Trimmu"
+        elif "jinnah" in norm or "kalabagh" in norm:
+            barrage_name = "Jinnah (Mean 24 hrs)"
+        elif "chashma" in norm:
+            barrage_name = "Chashma (Mean 24 hrs)"
+            
+        if barrage_name:
+            barrages_discharge = fetch_all_dict(
+                "SELECT * FROM barrages_discharge WHERE station = ? AND recorded_date IN (?, ?) ORDER BY recorded_date DESC;",
+                (barrage_name, d1, d2)
+            )
+            
+        # 4. River Inflows
+        inflow_name = None
+        if "tarbela" in norm:
+            inflow_name = "Indus at Tarbela"
+        elif "mangla" in norm:
+            inflow_name = "Jhelum at Mangla"
+        elif "marala" in norm:
+            inflow_name = "Chenab at Marala"
+        elif "nowshera" in norm or "kabul" in norm:
+            inflow_name = "Kabul at Nowshera"
+            
+        if inflow_name:
+            river_inflows = fetch_all_dict(
+                "SELECT * FROM river_inflows WHERE station LIKE ? AND recorded_date IN (?, ?) ORDER BY recorded_date DESC;",
+                (f"%{inflow_name}%", d1, d2)
+            )
+            
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'station': station_name,
+            'latest_date': d1,
+            'yesterday_date': d2,
+            'skardu_temp': skardu_temp,
+            'reservoir_levels': res_levels,
+            'reservoir_storages': res_storages,
+            'barrages_discharge': barrages_discharge,
+            'river_inflows': river_inflows
+        })
+        
+    except Exception as e:
+        logging.error(f"Error querying daily situation for {station_name}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 # ---- NO SCHEDULER - Remote collector handles all updates ----
 # Scheduler removed since remote collector handles all database updates
+
 
 if __name__ == '__main__':
     print("Starting Hydrological Situation Dashboard API...")
