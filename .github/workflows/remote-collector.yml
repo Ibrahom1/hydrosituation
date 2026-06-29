@@ -2,7 +2,7 @@ name: Remote Data Collector (Daily) - JSON + Database
 
 on:
   schedule:
-    - cron: '0 */3 * * *'  # every 3 hours (UTC)
+    - cron: '0 * * * *'  # every hour (UTC)
   workflow_dispatch: {}
 
 jobs:
