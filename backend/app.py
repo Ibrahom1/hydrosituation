@@ -1041,6 +1041,94 @@ def get_history():
             'source': 'database_readonly'
         })
 
+@app.route('/api/storage-history')
+def get_storage_history():
+    """Get reservoir storage history from daily_water_situation.sqlite"""
+    name = request.args.get('name', '').strip()
+    days = int(request.args.get('days', 30))
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+
+    if not name:
+        return jsonify({'success': False, 'error': 'Missing name parameter'}), 400
+
+    # Map station name to reservoir name
+    norm = name.lower()
+    if 'tarbela' in norm:
+        reservoir = 'Tarbela'
+    elif 'mangla' in norm:
+        reservoir = 'Mangla'
+    elif 'chashma' in norm:
+        reservoir = 'Chashma'
+    else:
+        return jsonify({'success': False, 'error': f'No reservoir storage data for station: {name}'}), 404
+
+    if not os.path.exists(DAILY_WATER_DB_PATH):
+        return jsonify({'success': False, 'error': f'Database not found at {DAILY_WATER_DB_PATH}'}), 404
+
+    try:
+        conn = sqlite3.connect(DAILY_WATER_DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+
+        if start_date and end_date:
+            cur.execute("""
+                SELECT recorded_date, today, last_year, avg_last_5_years, avg_last_10_years, max_maf
+                FROM reservoir_storages
+                WHERE reservoir = ? AND recorded_date >= ? AND recorded_date <= ?
+                ORDER BY recorded_date ASC
+            """, (reservoir, start_date, end_date))
+        else:
+            # Fetch last N days relative to the latest available date
+            cur.execute("SELECT MAX(recorded_date) FROM reservoir_storages WHERE reservoir = ?", (reservoir,))
+            latest_row = cur.fetchone()
+            latest_date = latest_row[0] if latest_row else None
+            if not latest_date:
+                conn.close()
+                return jsonify({'success': True, 'reservoir': reservoir, 'series': [], 'max_maf': None})
+
+            from datetime import datetime as _dt, timedelta as _td
+            latest_dt = _dt.strptime(latest_date, '%Y-%m-%d')
+            cutoff_dt = latest_dt - _td(days=days - 1)
+            cutoff_str = cutoff_dt.strftime('%Y-%m-%d')
+
+            cur.execute("""
+                SELECT recorded_date, today, last_year, avg_last_5_years, avg_last_10_years, max_maf
+                FROM reservoir_storages
+                WHERE reservoir = ? AND recorded_date >= ?
+                ORDER BY recorded_date ASC
+            """, (reservoir, cutoff_str))
+
+        rows = cur.fetchall()
+        conn.close()
+
+        series = []
+        max_maf = None
+        for row in rows:
+            rec_date, today_val, last_year, avg5, avg10, maf = row
+            if max_maf is None and maf is not None:
+                max_maf = float(maf)
+            series.append({
+                'date': rec_date,
+                'today': float(today_val) if today_val is not None else None,
+                'last_year': float(last_year) if last_year is not None else None,
+                'avg_last_5_years': float(avg5) if avg5 is not None else None,
+                'avg_last_10_years': float(avg10) if avg10 is not None else None,
+            })
+
+        return jsonify({
+            'success': True,
+            'reservoir': reservoir,
+            'max_maf': max_maf,
+            'series': series,
+            'points': len(series)
+        })
+
+    except Exception as e:
+        logging.error(f"Error fetching storage history for {name}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/storage-status')
 def storage_status():
     """Check database storage status (read-only)"""
