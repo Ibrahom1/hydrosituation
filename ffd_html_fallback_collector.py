@@ -57,68 +57,103 @@ DAM_NAMES = {"Tarbela Dam", "Mangla Dam", "Chashma"}
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def fetch_html(url: str) -> str:
+def create_robust_session() -> Any:
     import requests
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
 
-    response = requests.get(url, timeout=60, headers=UA)
+    session = requests.Session()
+    session.headers.update(UA)
+    retries = Retry(
+        total=4,
+        backoff_factor=1.5,
+        status_forcelist=[500, 502, 503, 504],
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retries)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+def fetch_html(url: str, session: Optional[Any] = None) -> str:
+    s = session or create_robust_session()
+    response = s.get(url, timeout=(15, 60))
     response.raise_for_status()
     if not response.text.strip():
         raise RuntimeError(f"Empty HTML response from {url}")
     return response.text
 
 
-def fetch_token_gated_stations(page_url: str, data_url: str) -> List[Dict[str, Any]]:
+def fetch_token_gated_stations(
+    page_url: str = DEFAULT_URL,
+    data_url: str = DATA_ENDPOINT,
+    html_text: Optional[str] = None,
+    session: Optional[Any] = None,
+) -> List[Dict[str, Any]]:
     """Fetch station data from the token-gated JSON endpoint.
 
     Flow:
-        1. GET the river-state page → capture session cookies from the response.
-        2. Extract the embedded RS_TOKEN from the page HTML.
-        3. GET /river-state/data with the session cookies + X-FW-Token header.
+        1. GET the river-state page in session → capture matching cookies + HTML.
+        2. Extract embedded RS_TOKEN from that response HTML.
+        3. GET /river-state/data with session cookies + X-FW-Token header (with retries).
         4. Return the parsed ``stations`` list.
     """
-    import requests
+    s = session or create_robust_session()
 
-    session = requests.Session()
-    session.headers.update(UA)
-
-    # Step 1 – fetch the page to get cookies (Cloudflare, ASP.NET, etc.)
-    page_response = session.get(page_url, timeout=60)
+    # Always fetch page_url in session if cookies are empty or html_text is not from this session
+    # to guarantee RS_TOKEN matches the session cookies exactly.
+    print(f"[HTML] Fetching river-state page to sync session cookies and token…")
+    page_response = s.get(page_url, timeout=(15, 60))
     page_response.raise_for_status()
-    html = page_response.text
-    if not html.strip():
+    current_html = page_response.text
+
+    if not current_html.strip():
         raise RuntimeError(f"Empty HTML response from {page_url}")
 
-    # Step 2 – extract RS_TOKEN from the page.
-    # Pattern: var RS_TOKEN = "timestamp.hexhash";
-    token_match = re.search(r'var\s+RS_TOKEN\s*=\s*["\']([^"\']+)["\']', html)
+    # Extract RS_TOKEN from the fresh page response
+    token_match = re.search(r'var\s+RS_TOKEN\s*=\s*["\']([^"\']+)["\']', current_html)
+    if not token_match and html_text:
+        token_match = re.search(r'var\s+RS_TOKEN\s*=\s*["\']([^"\']+)["\']', html_text)
+
     if not token_match:
         raise RuntimeError(
             "Could not find RS_TOKEN in the river-state HTML. "
-            "The page format may have changed again."
+            "The page format may have changed."
         )
     rs_token = token_match.group(1)
     print(f"[HTML] Extracted RS_TOKEN: {rs_token[:20]}…")
 
-    # Step 3 – fetch the gated data endpoint in the same session
+    # Step 3 – fetch the gated data endpoint with retries
     data_headers = {
         "X-Requested-With": "XMLHttpRequest",
         "X-FW-Token": rs_token,
         "Referer": page_url,
     }
-    data_response = session.get(data_url, timeout=60, headers=data_headers)
-    if data_response.status_code == 403:
-        raise RuntimeError(
-            "403 Forbidden from /river-state/data – token or cookies were rejected."
-        )
-    data_response.raise_for_status()
 
-    payload = data_response.json()
-    stations = payload.get("stations") or []
-    if not stations:
-        raise RuntimeError("Token-gated endpoint returned zero stations.")
+    last_error = None
+    for attempt in range(1, 4):
+        try:
+            print(f"[HTML] Fetching data endpoint attempt {attempt}/3…")
+            data_response = s.get(data_url, timeout=(15, 60), headers=data_headers)
+            if data_response.status_code == 403:
+                raise RuntimeError(
+                    "403 Forbidden from /river-state/data – token or cookies were rejected."
+                )
+            data_response.raise_for_status()
+            payload = data_response.json()
+            stations = payload.get("stations") or []
+            if not stations:
+                raise RuntimeError("Token-gated endpoint returned zero stations.")
+            print(f"[HTML] Token-gated endpoint returned {len(stations)} stations.")
+            return stations
+        except Exception as exc:
+            last_error = exc
+            print(f"[WARN] Data endpoint attempt {attempt} failed: {exc}")
+            import time
+            time.sleep(2 * attempt)
 
-    print(f"[HTML] Token-gated endpoint returned {len(stations)} stations.")
-    return stations
+    raise RuntimeError(f"All attempts to fetch token-gated data failed: {last_error}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -303,6 +338,7 @@ def parse_stations(
     data_url: str = DATA_ENDPOINT,
     *,
     prefer_token_gated: bool = True,
+    session: Optional[Any] = None,
 ) -> List[Dict[str, Any]]:
     """Return station dicts from the FFD river-state page.
 
@@ -313,7 +349,12 @@ def parse_stations(
     # ── Approach 1: Token-gated JSON endpoint ────────────────────────────
     if prefer_token_gated:
         try:
-            stations = fetch_token_gated_stations(page_url, data_url)
+            stations = fetch_token_gated_stations(
+                page_url=page_url,
+                data_url=data_url,
+                html_text=html,
+                session=session,
+            )
             if stations:
                 return stations
         except Exception as exc:
@@ -322,7 +363,7 @@ def parse_stations(
 
     # ── Approach 2: Legacy `var s = {…}` inline parsing ──────────────────
     if html is None:
-        html = fetch_html(page_url)
+        html = fetch_html(page_url, session=session)
 
     stations = parse_stations_from_html(html)
     if not stations:
@@ -486,14 +527,13 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
 def main(argv: List[str]) -> int:
     args = parse_args(argv)
 
+    session = create_robust_session()
+
     html_text: Optional[str] = None
     if args.fetch_html:
-        html_text = fetch_html(args.url)
+        html_text = fetch_html(args.url, session=session)
         write_text(args.fetch_html, html_text)
         print(f"[HTML] Saved fetched river-state HTML to {args.fetch_html}")
-        if not args.html_file and not args.dry_run and not args.legacy_only:
-            # In new mode we still need to proceed to fetch the token-gated data
-            pass
 
     if args.html_file:
         html_text = read_text(args.html_file)
@@ -503,6 +543,7 @@ def main(argv: List[str]) -> int:
         page_url=args.url,
         data_url=args.data_url,
         prefer_token_gated=not args.legacy_only,
+        session=session,
     )
 
     if len(stations) < args.min_stations:
