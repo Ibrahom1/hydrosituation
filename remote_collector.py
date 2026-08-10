@@ -76,6 +76,47 @@ def swap_lat_long(items):
 
     return items
 
+import re
+
+def format_recorded_at_with_year(raw_time, fetched_at_iso):
+    """Ensure recorded_at string stored in database includes an explicit 4-digit year."""
+    if not raw_time:
+        return raw_time
+    raw_str = str(raw_time).strip()
+    if re.search(r'\b(20\d{2})\b', raw_str):
+        return raw_str
+    
+    fallback_year = None
+    if fetched_at_iso:
+        try:
+            fallback_year = datetime.datetime.fromisoformat(fetched_at_iso).year
+        except Exception:
+            fallback_year = None
+    if not fallback_year:
+        fallback_year = datetime.datetime.utcnow().year
+
+    month_map = {'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+                 'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12}
+    month_names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
+    parts = raw_str.split()
+    if len(parts) >= 2:
+        date_part = parts[0]
+        time_part = parts[1]
+        tz_part = parts[2] if len(parts) >= 3 else "PST"
+        if '-' in date_part:
+            try:
+                day_str, month_abbr = date_part.split('-', 1)
+                day = int(day_str)
+                month = month_map.get(month_abbr[:3].title(), 1)
+                hour = int(time_part.split(':')[0]) if ':' in time_part else int(time_part)
+                minute = int(time_part.split(':')[1]) if ':' in time_part else 0
+                dt = datetime.datetime(fallback_year, month, day, hour, minute)
+                return f"{dt.day:02d}-{month_names[dt.month-1]}-{dt.year} {dt.hour:02d}:{dt.minute:02d} {tz_part}"
+            except Exception:
+                pass
+    return raw_str
+
 def store_to_database(dams_data, headworks_data):
     if not dams_data.get('dams') and not headworks_data.get('headworks'):
         print('[DB] No data to store to database')
@@ -101,6 +142,7 @@ def store_to_database(dams_data, headworks_data):
 
         # dams
         for dam in dams_data.get('dams', []):
+            rec_at = format_recorded_at_with_year(dam.get('recording_time'), fetched_at)
             row = (
                 dam.get('name', '').strip(),
                 'DAM',
@@ -111,7 +153,7 @@ def store_to_database(dams_data, headworks_data):
                 dam.get('status'),
                 dam.get('inflow_trend'),
                 dam.get('outflow_trend'),
-                dam.get('recording_time'),
+                rec_at,
                 fetched_at
             )
             if has_changed(row):
@@ -119,6 +161,7 @@ def store_to_database(dams_data, headworks_data):
 
         # headworks
         for headwork in headworks_data.get('headworks', []):
+            rec_at = format_recorded_at_with_year(headwork.get('recording_time'), fetched_at)
             row = (
                 headwork.get('name', '').strip(),
                 'HEADWORK',
@@ -129,7 +172,7 @@ def store_to_database(dams_data, headworks_data):
                 headwork.get('status'),
                 headwork.get('inflow_trend'),
                 headwork.get('outflow_trend'),
-                headwork.get('recording_time'),
+                rec_at,
                 fetched_at
             )
             if has_changed(row):

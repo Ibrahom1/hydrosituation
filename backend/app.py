@@ -111,43 +111,94 @@ def parse_number(value):
         return None
 
 def parse_recorded_at(recorded_at_str, fallback_year: Optional[int] = None):
-    """Parse recorded_at timestamp like '19-Aug 06 PST' to datetime.
+    """Parse recorded_at timestamp like '19-Aug 06 PST' or '19-Aug-2025 06:00 PST' to datetime.
     If year is missing, use fallback_year when provided, otherwise current year.
     """
     if not recorded_at_str:
         return None
     try:
-        # Parse format like "19-Aug 06 PST" or "19-Aug 12 PST"
         parts = recorded_at_str.strip().split()
-        if len(parts) >= 3:
-            date_part = parts[0]  # "19-Aug"
-            time_part = parts[1]  # "06" or "12:30"
+        if len(parts) >= 2:
+            date_part = parts[0]  # "19-Aug" or "19-Aug-2025"
+            time_part = parts[1]  # "06" or "06:00"
             
-            # Parse day and month
-            day, month_str = date_part.split('-')
-            day = int(day)
-            
-            # Convert month abbreviation to number
-            month_map = {
-                'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
-                'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
-            }
-            month = month_map.get(month_str, 1)
-            
-            # Parse hour and optional minutes (assume provided fallback year or current year)
-            if ':' in time_part:
-                hour_str, min_str = time_part.split(':', 1)
-                hour = int(hour_str)
-                minute = int(min_str)
-            else:
-                hour = int(time_part)
-                minute = 0
-            year = fallback_year if fallback_year else datetime.utcnow().year
-            
-            return datetime(year, month, day, hour, minute, 0)
+            date_bits = date_part.split('-')
+            if len(date_bits) >= 2:
+                day = int(date_bits[0])
+                month_str = date_bits[1]
+                explicit_year = int(date_bits[2]) if len(date_bits) >= 3 else None
+                
+                month_map = {
+                    'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+                    'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+                }
+                month = month_map.get(month_str.title()[:3], 1)
+                
+                if ':' in time_part:
+                    hour_str, min_str = time_part.split(':', 1)
+                    hour = int(hour_str)
+                    minute = int(min_str)
+                else:
+                    hour = int(time_part)
+                    minute = 0
+                
+                year = explicit_year if explicit_year else (fallback_year if fallback_year else datetime.utcnow().year)
+                return datetime(year, month, day, hour, minute, 0)
     except Exception as e:
         logging.warning(f"Could not parse recorded_at '{recorded_at_str}': {e}")
     return None
+
+def db_sites_for_ffd_name(requested_name: str) -> List[str]:
+    """Resolve requested FFD site name to actual candidate site names stored in hydro_history.db."""
+    if not requested_name:
+        return []
+    req_norm = normalize_name(requested_name)
+    req_upper = requested_name.upper().strip()
+    candidates = set()
+
+    with DB_LOCK:
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute("SELECT DISTINCT name FROM telemetry_history")
+            all_db_names = [r[0] for r in cur.fetchall()]
+            conn.close()
+        except sqlite3.Error:
+            return [requested_name]
+
+    for db_name in all_db_names:
+        db_upper = db_name.upper().strip()
+        db_norm = normalize_name(db_name)
+        if db_upper == req_upper or db_norm == req_norm:
+            candidates.add(db_name)
+        elif db_norm.replace(' DAM', '') == req_norm.replace(' DAM', ''):
+            candidates.add(db_name)
+        elif db_upper.startswith(req_upper) or req_upper.startswith(db_upper):
+            candidates.add(db_name)
+
+    if req_upper in FFD_TO_CSV_NAME_MAP:
+        for alias in FFD_TO_CSV_NAME_MAP[req_upper]:
+            alias_norm = normalize_name(alias)
+            for db_name in all_db_names:
+                if normalize_name(db_name) == alias_norm:
+                    candidates.add(db_name)
+
+    if not candidates:
+        candidates.add(requested_name)
+
+    return list(candidates)
+
+def format_db_timestamp(recorded_at_str: str, pt: datetime) -> str:
+    """Format DB timestamp into standardized 'DD-Mon-YYYY HH:MM TZ' string with explicit year matching CSV format."""
+    if not pt:
+        return recorded_at_str or "Unknown time"
+    month_map = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    tz_part = "PKT"
+    if recorded_at_str:
+        parts = recorded_at_str.strip().split()
+        if len(parts) >= 3 and parts[-1].upper() in ('PST', 'PKT', 'UTC', 'EST', 'GMT'):
+            tz_part = parts[-1].upper()
+    return f"{pt.day:02d}-{month_map[pt.month-1]}-{pt.year} {pt.hour:02d}:{pt.minute:02d} {tz_part}"
 
 def fetch_history_extended(name, days=7):
     """Fetch history for multiple days using recorded_at, robust across years.
@@ -157,18 +208,22 @@ def fetch_history_extended(name, days=7):
         logging.warning(f"Database not found at {DB_PATH}")
         return [], []
 
+    db_candidates = db_sites_for_ffd_name(name)
+    placeholders = ','.join(['?'] * len(db_candidates))
+    upper_candidates = [c.upper().strip() for c in db_candidates]
+
     with DB_LOCK:
         try:
             conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
             cur.execute(
-                """
+                f"""
                 SELECT inflow_discharge, outflow_discharge, recorded_at, fetched_at
                 FROM telemetry_history
-                WHERE UPPER(name)=? AND recorded_at IS NOT NULL
+                WHERE UPPER(name) IN ({placeholders}) AND recorded_at IS NOT NULL
                 ORDER BY fetched_at ASC
                 """,
-                (name.upper().strip(),),
+                upper_candidates,
             )
             rows = cur.fetchall()
             conn.close()
@@ -203,12 +258,12 @@ def fetch_history_extended(name, days=7):
         fallback_year = ft.year if ft else None
         parsed_time = parse_recorded_at(recorded_at, fallback_year)
         if parsed_time and parsed_time >= cutoff_datetime:
-            filtered_rows.append((inflow, outflow, recorded_at))
+            ts = format_db_timestamp(recorded_at, parsed_time)
+            filtered_rows.append((inflow, outflow, ts))
 
     logging.info(f"Debug: Found {len(filtered_rows)} rows within last {days} days for {name}")
     inflow_series, outflow_series = [], []
-    for inflow, outflow, rec in filtered_rows:
-        ts = rec if rec else "Unknown time"
+    for inflow, outflow, ts in filtered_rows:
         if inflow is not None:
             inflow_series.append({"x": ts, "y": inflow})
         if outflow is not None:
@@ -231,18 +286,22 @@ def fetch_history_between(name, start_date, end_date):
         logging.error(f"Invalid date range params: {start_date} - {end_date}: {e}")
         return [], []
 
+    db_candidates = db_sites_for_ffd_name(name)
+    placeholders = ','.join(['?'] * len(db_candidates))
+    upper_candidates = [c.upper().strip() for c in db_candidates]
+
     with DB_LOCK:
         try:
             conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
             cur.execute(
-                """
+                f"""
                 SELECT inflow_discharge, outflow_discharge, recorded_at, fetched_at
                 FROM telemetry_history
-                WHERE UPPER(name)=? AND recorded_at IS NOT NULL
+                WHERE UPPER(name) IN ({placeholders}) AND recorded_at IS NOT NULL
                 ORDER BY fetched_at ASC
                 """,
-                (name.upper().strip(),),
+                upper_candidates,
             )
             rows = cur.fetchall()
             conn.close()
@@ -263,7 +322,7 @@ def fetch_history_between(name, start_date, end_date):
         if not pt:
             continue
         if start_dt <= pt <= end_dt:
-            ts = recorded_at or "Unknown time"
+            ts = format_db_timestamp(recorded_at, pt)
             if inflow is not None:
                 inflow_series.append({"x": ts, "y": inflow})
             if outflow is not None:
