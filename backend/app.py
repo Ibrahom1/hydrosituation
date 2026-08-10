@@ -1135,11 +1135,12 @@ def get_all_history():
 
 @app.route('/api/history')
 def get_history():
-    """Get historical data from database (read-only). If name is omitted or 'all', returns all stations."""
+    """Get historical data from CSV + database. If name is omitted or 'all', returns all stations."""
     name = request.args.get('name')
     days_arg = request.args.get('days')
     days_val = int(days_arg) if days_arg else None
-    hours = int(request.args.get('hours', (days_val or 15) * 24))
+    hours_arg = request.args.get('hours')
+    hours = int(hours_arg) if hours_arg else ((days_val or 15) * 24)
     start_date = request.args.get('start_date')  # YYYY-MM-DD
     end_date = request.args.get('end_date')      # YYYY-MM-DD
     
@@ -1155,67 +1156,52 @@ def get_history():
             'stations': stations_data
         })
     
-    # If explicit date range provided, use it (merge CSV [Jun 15..Aug 18] + DB [Aug 19..])
+    name = name.strip()
+    
     if start_date and end_date:
         try:
             s_dt = datetime.strptime(start_date, "%Y-%m-%d")
             e_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1) - timedelta(seconds=1)
         except Exception as e:
             return jsonify({'success': False, 'error': f'Invalid date range: {e}'}), 400
-
-        # CSV portion intersection
-        csv_in, csv_out = [], []
-        csv_s = max(s_dt, CSV_START_DT)
-        csv_e = min(e_dt, CSV_END_DT)
-        logging.info(f"History: {name} requested {s_dt}..{e_dt}; CSV window {csv_s}..{csv_e}")
-        if csv_s <= csv_e:
-            csv_in, csv_out = fetch_history_from_csv(name, csv_s, csv_e)
-
-        # DB portion intersection
-        db_in, db_out = [], []
-        db_s = max(s_dt, DB_START_DT)
-        db_e = e_dt
-        logging.info(f"History: {name} DB window {db_s}..{db_e}")
-        if db_s <= db_e:
-            db_in, db_out = fetch_history_between(name, db_s.strftime('%Y-%m-%d'), db_e.strftime('%Y-%m-%d'))
-
-        inflow_series = (csv_in or []) + (db_in or [])
-        outflow_series = (csv_out or []) + (db_out or [])
-        logging.info(f"History: {name} returning {len(inflow_series)} inflow, {len(outflow_series)} outflow points (CSV {len(csv_in)}/{len(csv_out)}, DB {len(db_in)}/{len(db_out)})")
-        return jsonify({
-            'success': True,
-            'name': name,
-            'start_date': start_date,
-            'end_date': end_date,
-            'inflow': inflow_series,
-            'outflow': outflow_series,
-            'points': max(len(inflow_series), len(outflow_series)),
-            'source': 'csv+database' if (csv_in or csv_out) else 'database_readonly'
-        })
-    # Use days if provided, otherwise convert hours to days
-    if request.args.get('days'):
-        inflow_series, outflow_series = fetch_history_extended(name, days)
-        return jsonify({
-            'success': True,
-            'name': name,
-            'days': days,
-            'inflow': inflow_series,
-            'outflow': outflow_series,
-            'points': max(len(inflow_series), len(outflow_series)),
-            'source': 'database_readonly'
-        })
+    elif days_val:
+        e_dt = datetime.utcnow()
+        s_dt = e_dt - timedelta(days=days_val)
     else:
-        # Legacy hours-based request
-        inflow_series, outflow_series = fetch_history(name, hours)
-        return jsonify({
-            'success': True,
-            'name': name,
-            'hours': hours,
-            'inflow': inflow_series,
-            'outflow': outflow_series,
-            'points': max(len(inflow_series), len(outflow_series)),
-            'source': 'database_readonly'
-        })
+        s_dt = CSV_START_DT
+        e_dt = datetime.utcnow()
+
+    # CSV portion intersection
+    csv_in, csv_out = [], []
+    csv_s = max(s_dt, CSV_START_DT)
+    csv_e = min(e_dt, CSV_END_DT)
+    logging.info(f"History: {name} requested {s_dt}..{e_dt}; CSV window {csv_s}..{csv_e}")
+    if csv_s <= csv_e:
+        csv_in, csv_out = fetch_history_from_csv(name, csv_s, csv_e)
+
+    # DB portion intersection
+    db_in, db_out = [], []
+    db_s = max(s_dt, DB_START_DT)
+    db_e = e_dt
+    logging.info(f"History: {name} DB window {db_s}..{db_e}")
+    if db_s <= db_e:
+        db_in, db_out = fetch_history_between(name, db_s.strftime('%Y-%m-%d'), db_e.strftime('%Y-%m-%d'))
+
+    inflow_series = (csv_in or []) + (db_in or [])
+    outflow_series = (csv_out or []) + (db_out or [])
+    logging.info(f"History: {name} returning {len(inflow_series)} inflow, {len(outflow_series)} outflow points (CSV {len(csv_in)}/{len(csv_out)}, DB {len(db_in)}/{len(db_out)})")
+
+    return jsonify({
+        'success': True,
+        'name': name,
+        'start_date': start_date or s_dt.strftime('%Y-%m-%d'),
+        'end_date': end_date or e_dt.strftime('%Y-%m-%d'),
+        'days': days_val,
+        'inflow': inflow_series,
+        'outflow': outflow_series,
+        'points': max(len(inflow_series), len(outflow_series)),
+        'source': 'csv+database' if (csv_in or csv_out) else 'database_readonly'
+    })
 
 @app.route('/api/storage-history')
 def get_storage_history():
