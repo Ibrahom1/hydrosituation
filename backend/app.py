@@ -748,6 +748,95 @@ def fetch_history_from_csv(ffd_name: str, start_dt: datetime, end_dt: datetime):
     logging.debug(f"CSV fetch: collected {len(result_in)} inflow and {len(result_out)} outflow points")
     return result_in, result_out
 
+def fetch_all_stations_history(start_date: Optional[str] = None, end_date: Optional[str] = None, days: Optional[int] = None) -> Dict[str, Dict[str, List[dict]]]:
+    """Fetch combined CSV + Database historical data for ALL stations.
+    - If start_date and end_date are provided: filters by date range.
+    - Else if days is provided: filters by last N days.
+    - Else (no params): returns ALL historical data (2014 to present).
+    """
+    if start_date and end_date:
+        try:
+            s_dt = datetime.strptime(start_date, "%Y-%m-%d")
+            e_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1) - timedelta(seconds=1)
+        except Exception:
+            s_dt = CSV_START_DT
+            e_dt = datetime.utcnow()
+    elif days is not None:
+        e_dt = datetime.utcnow()
+        s_dt = e_dt - timedelta(days=int(days))
+    else:
+        s_dt = CSV_START_DT
+        e_dt = datetime.utcnow()
+
+    stations_data: Dict[str, Dict[str, List[dict]]] = {}
+
+    # 1. Process CSV portion
+    csv_s = max(s_dt, CSV_START_DT)
+    csv_e = min(e_dt, CSV_END_DT)
+    if csv_s <= csv_e:
+        csv_history = load_csv_history()
+        for site_name, records in csv_history.items():
+            st_key = site_name.upper().strip()
+            st_entry = stations_data.setdefault(st_key, {'inflow': [], 'outflow': []})
+            for rec in records:
+                dt = rec['dt']
+                if csv_s <= dt <= csv_e:
+                    rec_str = rec['recorded']
+                    if rec['inflow'] is not None:
+                        st_entry['inflow'].append({'x': rec_str, 'y': rec['inflow']})
+                    if rec['outflow'] is not None:
+                        st_entry['outflow'].append({'x': rec_str, 'y': rec['outflow']})
+
+    # 2. Process Database portion
+    db_s = max(s_dt, DB_START_DT)
+    db_e = e_dt
+    if db_s <= db_e:
+        with DB_LOCK:
+            try:
+                conn = sqlite3.connect(DB_PATH)
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    SELECT name, inflow_discharge, outflow_discharge, recorded_at, fetched_at
+                    FROM telemetry_history
+                    WHERE recorded_at IS NOT NULL
+                    ORDER BY fetched_at ASC
+                    """
+                )
+                rows = cur.fetchall()
+                conn.close()
+            except sqlite3.Error:
+                rows = []
+
+        for db_name, inflow, outflow, recorded_at, fetched_at in rows:
+            st_key = db_name.upper().strip()
+            for ffd_key in FFD_TO_CSV_NAME_MAP:
+                if normalize_name(db_name) == normalize_name(ffd_key):
+                    mapped_sites = FFD_TO_CSV_NAME_MAP[ffd_key]
+                    if mapped_sites:
+                        st_key = mapped_sites[0].upper().strip()
+                    break
+
+            fallback_year = None
+            try:
+                fallback_year = datetime.fromisoformat(fetched_at).year if fetched_at else None
+            except Exception:
+                fallback_year = None
+
+            pt = parse_recorded_at(recorded_at, fallback_year)
+            if not pt:
+                continue
+
+            if db_s <= pt <= db_e:
+                ts = format_db_timestamp(recorded_at, pt)
+                st_entry = stations_data.setdefault(st_key, {'inflow': [], 'outflow': []})
+                if inflow is not None:
+                    st_entry['inflow'].append({'x': ts, 'y': inflow})
+                if outflow is not None:
+                    st_entry['outflow'].append({'x': ts, 'y': outflow})
+
+    return stations_data
+
 @app.route('/api/history-csv')
 def get_history_csv_only():
     """Return only CSV historical data for a site between dates (for debugging/verification)."""
@@ -1026,17 +1115,45 @@ def get_ffd_headworks():
         logging.error(f"Error getting headwork data: {e}")
         return jsonify({'success': False, 'error': str(e), 'timestamp': datetime.utcnow().isoformat()}), 500
 
+@app.route('/api/history-all')
+def get_all_history():
+    """Get historical data for ALL stations combined from CSV + Database."""
+    start_date = request.args.get('start_date')  # YYYY-MM-DD
+    end_date = request.args.get('end_date')      # YYYY-MM-DD
+    days = request.args.get('days')
+    days_val = int(days) if days else None
+    stations_data = fetch_all_stations_history(start_date, end_date, days=days_val)
+    return jsonify({
+        'success': True,
+        'start_date': start_date,
+        'end_date': end_date,
+        'days': days_val,
+        'total_stations': len(stations_data),
+        'source': 'csv+database',
+        'stations': stations_data
+    })
+
 @app.route('/api/history')
 def get_history():
-    """Get historical data from database (read-only)"""
+    """Get historical data from database (read-only). If name is omitted or 'all', returns all stations."""
     name = request.args.get('name')
-    days = int(request.args.get('days', 15))
-    hours = int(request.args.get('hours', days * 24))
+    days_arg = request.args.get('days')
+    days_val = int(days_arg) if days_arg else None
+    hours = int(request.args.get('hours', (days_val or 15) * 24))
     start_date = request.args.get('start_date')  # YYYY-MM-DD
     end_date = request.args.get('end_date')      # YYYY-MM-DD
     
-    if not name:
-        return jsonify({'success': False, 'error': 'Missing name parameter'}), 400
+    if not name or name.strip().lower() in ('all', '*', 'all_stations'):
+        stations_data = fetch_all_stations_history(start_date, end_date, days=days_val)
+        return jsonify({
+            'success': True,
+            'start_date': start_date,
+            'end_date': end_date,
+            'days': days_val,
+            'total_stations': len(stations_data),
+            'source': 'csv+database',
+            'stations': stations_data
+        })
     
     # If explicit date range provided, use it (merge CSV [Jun 15..Aug 18] + DB [Aug 19..])
     if start_date and end_date:
